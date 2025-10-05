@@ -4,9 +4,6 @@
 *.dll
 *.so
 *.dylib
-gkipass-*
-plane
-client
 server
 
 # Test binary
