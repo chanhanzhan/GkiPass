@@ -1,0 +1,62 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+gkipass-*
+plane
+client
+server
+
+# Test binary
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Dependency directories
+vendor/
+
+# Go workspace file
+go.work
+go.work.sum
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# Logs
+*.log
+logs/
+
+# Config (keep example)
+config.yaml
+*.local.yaml
+
+# Certificates
+certs/
+*.pem
+*.key
+*.crt
+*.csr
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+bin/
+web/
