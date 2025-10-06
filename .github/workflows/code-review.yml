@@ -77,14 +77,108 @@ jobs:
           npm ci
           npm run lint || true
 
-      - name: AI Code Review with OpenAI
+      - name: Get PR diff
         if: github.event_name == 'pull_request'
-        uses: freeedcom/ai-codereviewer@v2.7.2
-        with:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        id: pr-diff
+        run: |
+          # 获取 PR 的 diff
+          gh pr diff ${{ github.event.pull_request.number }} > pr_diff.txt || true
+          
+          # 限制 diff 大小（最多前 5000 行）
+          head -n 5000 pr_diff.txt > pr_diff_limited.txt || true
+          
+          # 将 diff 内容输出（用于调试）
+          echo "Diff size: $(wc -l < pr_diff_limited.txt) lines"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: AI Code Review with OpenAI
+        if: github.event_name == 'pull_request' && vars.ENABLE_AI_REVIEW == 'true'
+        uses: actions/github-script@v7
+        env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_API_MODEL: "gpt-4"
-          exclude: "**/*.md,**/*.txt,**/go.sum,**/package-lock.json,**/bun.lock"
+        with:
+          script: |
+            const fs = require('fs');
+            const https = require('https');
+            
+            // 检查是否配置了 OpenAI API Key
+            if (!process.env.OPENAI_API_KEY) {
+              console.log('⚠️ OPENAI_API_KEY 未配置，跳过 AI 代码审查');
+              console.log('💡 提示：在仓库 Settings > Secrets and variables > Actions 中添加 OPENAI_API_KEY');
+              console.log('💡 并在 Settings > Variables > Actions 中添加变量 ENABLE_AI_REVIEW=true');
+              return;
+            }
+            
+            try {
+              const prDiff = fs.readFileSync('pr_diff_limited.txt', 'utf8');
+              
+              if (!prDiff || prDiff.trim().length === 0) {
+                console.log('没有检测到代码变更');
+                return;
+              }
+              
+              // 调用 OpenAI API
+              const data = JSON.stringify({
+                model: "gpt-4",
+                messages: [
+                  {
+                    role: "system",
+                    content: "你是一个专业的代码审查助手。请审查以下代码变更，关注代码质量、安全性、性能和最佳实践。请用中文回复，并提供具体的改进建议。"
+                  },
+                  {
+                    role: "user",
+                    content: `请审查以下 PR 的代码变更：\n\n\`\`\`diff\n${prDiff.substring(0, 8000)}\n\`\`\``
+                  }
+                ],
+                temperature: 0.3,
+                max_tokens: 2000
+              });
+              
+              const options = {
+                hostname: 'api.openai.com',
+                path: '/v1/chat/completions',
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+                  'Content-Length': data.length
+                }
+              };
+              
+              const response = await new Promise((resolve, reject) => {
+                const req = https.request(options, (res) => {
+                  let body = '';
+                  res.on('data', (chunk) => body += chunk);
+                  res.on('end', () => {
+                    if (res.statusCode === 200) {
+                      resolve(JSON.parse(body));
+                    } else {
+                      reject(new Error(`OpenAI API 返回错误: ${res.statusCode} - ${body}`));
+                    }
+                  });
+                });
+                req.on('error', reject);
+                req.write(data);
+                req.end();
+              });
+              
+              const review = response.choices[0].message.content;
+              
+              // 发布审查评论
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: `## 🤖 AI 代码审查\n\n${review}\n\n---\n\n> 由 OpenAI GPT-4 生成 | 仅供参考，请结合人工审查`
+              });
+              
+              console.log('✅ AI 代码审查完成');
+              
+            } catch (error) {
+              console.error('❌ AI 代码审查失败:', error.message);
+              // 不让审查失败影响整个工作流
+            }
 
       - name: Generate commit summary
         if: github.event_name == 'push'
