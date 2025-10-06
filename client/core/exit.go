@@ -53,7 +53,7 @@ func (ex *ExitNode) HandleStream(stream *pool.Stream, sessionID string) {
 
 	// 选择目标（简单选择第一个）
 	target := targets[0]
-	targetAddr := fmt.Sprintf("%s:%d", target.Host, target.Port)
+	targetAddr := net.JoinHostPort(target.Host, fmt.Sprintf("%d", target.Port))
 
 	// 连接目标服务器
 	targetConn, err := net.Dial("tcp", targetAddr)
@@ -156,9 +156,3 @@ func (ex *ExitNode) forwardBidirectional(stream *pool.Stream, targetConn net.Con
 
 	logger.Debug("Exit转发结束", zap.String("session_id", sessionID))
 }
-
-
-
-
-
-

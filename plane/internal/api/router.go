@@ -93,11 +93,18 @@ func SetupRouter(app *App, wsServer *ws.Server) *gin.Engine {
 			groups := authorized.Group("/node-groups")
 			{
 				groupHandler := NewNodeGroupHandler(app)
+				configHandler := NewNodeGroupConfigHandler(app)
+
 				groups.POST("", groupHandler.Create)
 				groups.GET("", groupHandler.List)
 				groups.GET("/:id", groupHandler.Get)
 				groups.PUT("/:id", groupHandler.Update)
 				groups.DELETE("/:id", groupHandler.Delete)
+
+				// 节点组配置
+				groups.GET("/:id/config", configHandler.GetNodeGroupConfig)
+				groups.PUT("/:id/config", configHandler.UpdateNodeGroupConfig)
+				groups.POST("/:id/config/reset", configHandler.ResetNodeGroupConfig)
 			}
 
 			// 节点管理
@@ -134,6 +141,17 @@ func SetupRouter(app *App, wsServer *ws.Server) *gin.Engine {
 				nodes.POST("/:id/cert/renew", certHandler.RenewCert)
 				nodes.GET("/:id/cert/info", certHandler.GetCertInfo)
 			}
+
+			// 节点部署 API
+			deployHandler := NewNodeDeployHandler(app)
+
+			// 节点组内创建节点
+			groups.POST("/:id/nodes", deployHandler.CreateNode)
+			groups.GET("/:id/nodes", deployHandler.ListNodesInGroup)
+
+			// 节点注册（公开API，供服务器调用）
+			v1.POST("/nodes/register", deployHandler.RegisterNode)
+			// 注意：心跳API已在上面的nodes路由组中注册（nodes.POST("/:id/heartbeat", nodeHandler.Heartbeat)）
 
 			// 策略管理
 			policies := authorized.Group("/policies")
@@ -200,6 +218,15 @@ func SetupRouter(app *App, wsServer *ws.Server) *gin.Engine {
 				stats.POST("/report", statsHandler.ReportStats)
 			}
 
+			// 流量统计
+			traffic := authorized.Group("/traffic")
+			{
+				trafficHandler := NewTrafficStatsHandler(app)
+				traffic.GET("/stats", trafficHandler.ListTrafficStats)
+				traffic.GET("/summary", trafficHandler.GetTrafficSummary)
+				traffic.POST("/report", trafficHandler.ReportTraffic) // 节点上报流量
+			}
+
 			// 管理员专用统计
 			adminStats := authorized.Group("/admin/statistics")
 			adminStats.Use(middleware.AdminAuth())
@@ -214,7 +241,23 @@ func SetupRouter(app *App, wsServer *ws.Server) *gin.Engine {
 				walletHandler := NewWalletHandler(app)
 				wallet.GET("/balance", walletHandler.GetBalance)
 				wallet.GET("/transactions", walletHandler.ListTransactions)
-				wallet.POST("/recharge", walletHandler.Recharge)
+				wallet.POST("/recharge", walletHandler.Recharge) // 旧版保留兼容
+			}
+
+			// 支付管理
+			payment := authorized.Group("/payment")
+			{
+				paymentHandler := NewPaymentHandler(app)
+				payment.POST("/recharge", paymentHandler.CreateRechargeOrder)
+				payment.GET("/orders/:id", paymentHandler.QueryOrderStatus)
+			}
+
+			// 订阅管理
+			subscriptions := authorized.Group("/subscriptions")
+			{
+				subscriptionHandler := NewSubscriptionHandler(app)
+				subscriptions.GET("/current", subscriptionHandler.GetCurrentSubscription)
+				subscriptions.GET("", middleware.AdminAuth(), subscriptionHandler.ListSubscriptions)
 			}
 
 			// 通知管理
@@ -231,6 +274,15 @@ func SetupRouter(app *App, wsServer *ws.Server) *gin.Engine {
 			admin := authorized.Group("/admin")
 			admin.Use(middleware.AdminAuth())
 			{
+				// 支付配置管理
+				paymentConfigHandler := NewPaymentConfigHandler(app)
+				paymentHandler := NewPaymentHandler(app)
+				admin.GET("/payment/configs", paymentConfigHandler.ListConfigs)
+				admin.GET("/payment/config/:id", paymentConfigHandler.GetConfig)
+				admin.PUT("/payment/config/:id", paymentConfigHandler.UpdateConfig)
+				admin.POST("/payment/config/:id/toggle", paymentConfigHandler.ToggleConfig)
+				admin.POST("/payment/manual-recharge", paymentHandler.ManualRecharge)
+
 				// 系统设置
 				settingsHandler := NewSettingsHandler(app)
 				admin.GET("/settings/captcha", settingsHandler.GetCaptchaSettings)

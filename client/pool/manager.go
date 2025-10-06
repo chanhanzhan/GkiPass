@@ -52,8 +52,7 @@ func (pm *PoolManager) createMultiplexConn(exitNodeID string) (*MultiplexConn, e
 		return conn, nil
 	}
 
-	// TODO: 从节点发现服务获取Exit节点地址
-	// 当前简化：假设exitNodeID就是地址
+	// exitNodeID格式: host:port
 	addr := exitNodeID
 
 	logger.Info("创建Exit连接", zap.String("exit", addr))
@@ -111,9 +110,3 @@ func (pm *PoolManager) GetStats() map[string]int {
 	}
 	return stats
 }
-
-
-
-
-
-

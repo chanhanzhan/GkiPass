@@ -183,7 +183,13 @@ func (h *TLSProxyHandler) Handle(clientConn net.Conn, targetConn net.Conn) error
 			logger.Info("SNI路由",
 				zap.String("sni", sni),
 				zap.String("target", target))
-			// TODO: 重新路由到指定目标
+			// 重新连接到指定目标
+			targetConn.Close()
+			newConn, err := net.Dial("tcp", target)
+			if err != nil {
+				return err
+			}
+			targetConn = newConn
 		}
 	}
 
@@ -287,9 +293,3 @@ func (h *SOCKS5ProxyHandler) Handle(clientConn net.Conn, targetConn net.Conn) er
 	// 开始代理数据
 	return bidirectionalCopy(clientConn, targetConn)
 }
-
-
-
-
-
-

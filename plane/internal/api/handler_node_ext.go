@@ -62,7 +62,12 @@ func (h *NodeHandler) GetAvailableNodes(c *gin.Context) {
 	}
 
 	// 如果套餐的allowed_node_ids为空或"[]"，则允许使用所有节点
-	if plan.AllowedNodeIDs == "" || plan.AllowedNodeIDs == "[]" {
+	allowedNodeIDsStr := ""
+	if plan.AllowedNodeIDs.Valid {
+		allowedNodeIDsStr = plan.AllowedNodeIDs.String
+	}
+
+	if allowedNodeIDsStr == "" || allowedNodeIDsStr == "[]" {
 		response.Success(c, gin.H{
 			"nodes":            allNodes,
 			"has_subscription": true,
@@ -73,7 +78,7 @@ func (h *NodeHandler) GetAvailableNodes(c *gin.Context) {
 
 	// 解析允许的节点ID列表
 	var allowedNodeIDs []string
-	if err := json.Unmarshal([]byte(plan.AllowedNodeIDs), &allowedNodeIDs); err != nil {
+	if err := json.Unmarshal([]byte(allowedNodeIDsStr), &allowedNodeIDs); err != nil {
 		logger.Error("解析套餐节点ID失败", zap.Error(err))
 		response.InternalError(c, "Failed to parse plan node IDs")
 		return

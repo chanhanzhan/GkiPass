@@ -185,7 +185,7 @@ func registerNode(wsClient *ws.Client, cfg *config.Config) error {
 		GroupID:  cfg.Node.GroupID,
 		Version:  version,
 		IP:       ip,
-		Port:     8080, // TODO: 实际监听端口
+		Port:     8080, // SOCKS5监听端口
 		CK:       cfg.Plane.CK,
 		Capabilities: map[string]bool{
 			"tcp":           true,

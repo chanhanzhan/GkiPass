@@ -2,29 +2,41 @@ package sqlite
 
 import (
 	"database/sql"
+	"fmt"
 
 	dbinit "gkipass/plane/db/init"
 )
 
 // CreateSubscription 创建订阅
-func (s *SQLiteDB) CreateSubscription(sub *dbinit.UserSubscription) error {
+func (s *SQLiteDB) CreateSubscription(sub *dbinit.Subscription) error {
 	query := `
-		INSERT INTO user_subscriptions (id, user_id, plan_id, start_date, end_date, status, 
-			used_rules, used_traffic, traffic_reset)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO user_subscriptions 
+		(id, user_id, plan_id, status, start_at, expires_at, traffic, used_traffic, 
+		 max_tunnels, max_bandwidth, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
-	_, err := s.db.Exec(query, sub.ID, sub.UserID, sub.PlanID, sub.StartDate, sub.EndDate,
-		sub.Status, sub.UsedRules, sub.UsedTraffic, sub.TrafficReset)
+	_, err := s.db.Exec(query,
+		sub.ID, sub.UserID, sub.PlanID, sub.Status, sub.StartAt, sub.ExpiresAt,
+		sub.Traffic, sub.UsedTraffic, sub.MaxTunnels, sub.MaxBandwidth,
+		sub.CreatedAt, sub.UpdatedAt)
 	return err
 }
 
-// GetSubscription 获取订阅
-func (s *SQLiteDB) GetSubscription(id string) (*dbinit.UserSubscription, error) {
-	sub := &dbinit.UserSubscription{}
-	query := `SELECT * FROM user_subscriptions WHERE id = ?`
-	err := s.db.QueryRow(query, id).Scan(
-		&sub.ID, &sub.UserID, &sub.PlanID, &sub.StartDate, &sub.EndDate, &sub.Status,
-		&sub.UsedRules, &sub.UsedTraffic, &sub.TrafficReset, &sub.CreatedAt, &sub.UpdatedAt,
+// GetUserSubscription 获取用户订阅
+func (s *SQLiteDB) GetUserSubscription(userID string) (*dbinit.Subscription, error) {
+	sub := &dbinit.Subscription{}
+	query := `
+		SELECT id, user_id, plan_id, status, start_at, expires_at, 
+		       traffic, used_traffic, max_tunnels, max_bandwidth, created_at, updated_at
+		FROM user_subscriptions 
+		WHERE user_id = ? AND status = 'active'
+		ORDER BY created_at DESC 
+		LIMIT 1
+	`
+	err := s.db.QueryRow(query, userID).Scan(
+		&sub.ID, &sub.UserID, &sub.PlanID, &sub.Status, &sub.StartAt, &sub.ExpiresAt,
+		&sub.Traffic, &sub.UsedTraffic, &sub.MaxTunnels, &sub.MaxBandwidth,
+		&sub.CreatedAt, &sub.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -32,17 +44,41 @@ func (s *SQLiteDB) GetSubscription(id string) (*dbinit.UserSubscription, error) 
 	return sub, err
 }
 
-// GetActiveSubscriptionByUserID 获取用户的有效订阅
+// UpdateSubscription 更新订阅
+func (s *SQLiteDB) UpdateSubscription(sub interface{}) error {
+	query := `
+		UPDATE user_subscriptions 
+		SET status = ?, end_date = ?, used_traffic = ?, updated_at = ?
+		WHERE id = ?
+	`
+
+	switch v := sub.(type) {
+	case *dbinit.Subscription:
+		_, err := s.db.Exec(query, v.Status, v.ExpiresAt, v.UsedTraffic, v.UpdatedAt, v.ID)
+		return err
+	case *dbinit.UserSubscription:
+		_, err := s.db.Exec(query, v.Status, v.EndDate, v.UsedTraffic, v.UpdatedAt, v.ID)
+		return err
+	default:
+		return fmt.Errorf("unsupported subscription type")
+	}
+}
+
+// GetActiveSubscriptionByUserID 获取用户的活跃订阅（返回UserSubscription类型）
 func (s *SQLiteDB) GetActiveSubscriptionByUserID(userID string) (*dbinit.UserSubscription, error) {
 	sub := &dbinit.UserSubscription{}
 	query := `
-		SELECT * FROM user_subscriptions 
-		WHERE user_id = ? AND status = 'active' AND end_date > datetime('now')
-		ORDER BY end_date DESC LIMIT 1
+		SELECT id, user_id, plan_id, status, start_date, end_date, 
+		       used_rules, used_traffic, traffic_reset, created_at, updated_at
+		FROM user_subscriptions 
+		WHERE user_id = ? AND status = 'active'
+		ORDER BY created_at DESC 
+		LIMIT 1
 	`
 	err := s.db.QueryRow(query, userID).Scan(
-		&sub.ID, &sub.UserID, &sub.PlanID, &sub.StartDate, &sub.EndDate, &sub.Status,
-		&sub.UsedRules, &sub.UsedTraffic, &sub.TrafficReset, &sub.CreatedAt, &sub.UpdatedAt,
+		&sub.ID, &sub.UserID, &sub.PlanID, &sub.Status, &sub.StartDate, &sub.EndDate,
+		&sub.UsedRules, &sub.UsedTraffic, &sub.TrafficReset,
+		&sub.CreatedAt, &sub.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -50,84 +86,89 @@ func (s *SQLiteDB) GetActiveSubscriptionByUserID(userID string) (*dbinit.UserSub
 	return sub, err
 }
 
-// ListSubscriptionsByUserID 列出用户的所有订阅
-func (s *SQLiteDB) ListSubscriptionsByUserID(userID string) ([]*dbinit.UserSubscription, error) {
-	query := `SELECT * FROM user_subscriptions WHERE user_id = ? ORDER BY created_at DESC`
-	rows, err := s.db.Query(query, userID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	subs := []*dbinit.UserSubscription{}
-	for rows.Next() {
-		sub := &dbinit.UserSubscription{}
-		err := rows.Scan(
-			&sub.ID, &sub.UserID, &sub.PlanID, &sub.StartDate, &sub.EndDate, &sub.Status,
-			&sub.UsedRules, &sub.UsedTraffic, &sub.TrafficReset, &sub.CreatedAt, &sub.UpdatedAt,
-		)
-		if err != nil {
-			return nil, err
-		}
-		subs = append(subs, sub)
-	}
-
-	return subs, rows.Err()
+// CreateSubscriptionFromUserSubscription 从UserSubscription创建订阅
+func (s *SQLiteDB) CreateSubscriptionFromUserSubscription(sub *dbinit.UserSubscription) error {
+	query := `
+		INSERT INTO user_subscriptions 
+		(id, user_id, plan_id, status, start_date, end_date, 
+		 used_rules, used_traffic, traffic_reset, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`
+	_, err := s.db.Exec(query,
+		sub.ID, sub.UserID, sub.PlanID, sub.Status, sub.StartDate, sub.EndDate,
+		sub.UsedRules, sub.UsedTraffic, sub.TrafficReset,
+		sub.CreatedAt, sub.UpdatedAt)
+	return err
 }
 
-// GetSubscriptionsByPlanID 获取套餐的所有订阅
-func (s *SQLiteDB) GetSubscriptionsByPlanID(planID string) ([]*dbinit.UserSubscription, error) {
-	query := `SELECT * FROM user_subscriptions WHERE plan_id = ? AND status = 'active'`
+// GetSubscriptionsByPlanID 根据套餐ID获取订阅列表
+func (s *SQLiteDB) GetSubscriptionsByPlanID(planID string) ([]*dbinit.Subscription, error) {
+	query := `
+		SELECT id, user_id, plan_id, status, start_at, expires_at, 
+		       traffic, used_traffic, max_tunnels, max_bandwidth, created_at, updated_at
+		FROM user_subscriptions 
+		WHERE plan_id = ?
+		ORDER BY created_at DESC
+	`
 	rows, err := s.db.Query(query, planID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	subs := []*dbinit.UserSubscription{}
+	var subscriptions []*dbinit.Subscription
 	for rows.Next() {
-		sub := &dbinit.UserSubscription{}
+		sub := &dbinit.Subscription{}
 		err := rows.Scan(
-			&sub.ID, &sub.UserID, &sub.PlanID, &sub.StartDate, &sub.EndDate, &sub.Status,
-			&sub.UsedRules, &sub.UsedTraffic, &sub.TrafficReset, &sub.CreatedAt, &sub.UpdatedAt,
+			&sub.ID, &sub.UserID, &sub.PlanID, &sub.Status, &sub.StartAt, &sub.ExpiresAt,
+			&sub.Traffic, &sub.UsedTraffic, &sub.MaxTunnels, &sub.MaxBandwidth,
+			&sub.CreatedAt, &sub.UpdatedAt,
 		)
 		if err != nil {
 			return nil, err
 		}
-		subs = append(subs, sub)
+		subscriptions = append(subscriptions, sub)
 	}
 
-	return subs, rows.Err()
+	return subscriptions, rows.Err()
 }
 
-// UpdateSubscription 更新订阅
-func (s *SQLiteDB) UpdateSubscription(sub *dbinit.UserSubscription) error {
+// ListSubscriptions 列出所有订阅（管理员）
+func (s *SQLiteDB) ListSubscriptions(limit, offset int) ([]*dbinit.Subscription, int, error) {
+	// 获取总数
+	var total int
+	err := s.db.QueryRow("SELECT COUNT(*) FROM user_subscriptions").Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// 获取数据
 	query := `
-		UPDATE user_subscriptions 
-		SET status=?, used_rules=?, used_traffic=?, traffic_reset=?
-		WHERE id=?
+		SELECT id, user_id, plan_id, status, start_at, expires_at, 
+		       traffic, used_traffic, max_tunnels, max_bandwidth, created_at, updated_at
+		FROM user_subscriptions 
+		ORDER BY created_at DESC
+		LIMIT ? OFFSET ?
 	`
-	result, err := s.db.Exec(query, sub.Status, sub.UsedRules, sub.UsedTraffic,
-		sub.TrafficReset, sub.ID)
+	rows, err := s.db.Query(query, limit, offset)
 	if err != nil {
-		return err
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var subscriptions []*dbinit.Subscription
+	for rows.Next() {
+		sub := &dbinit.Subscription{}
+		err := rows.Scan(
+			&sub.ID, &sub.UserID, &sub.PlanID, &sub.Status, &sub.StartAt, &sub.ExpiresAt,
+			&sub.Traffic, &sub.UsedTraffic, &sub.MaxTunnels, &sub.MaxBandwidth,
+			&sub.CreatedAt, &sub.UpdatedAt,
+		)
+		if err != nil {
+			return nil, 0, err
+		}
+		subscriptions = append(subscriptions, sub)
 	}
 
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if rows == 0 {
-		return sql.ErrNoRows
-	}
-
-	return nil
+	return subscriptions, total, rows.Err()
 }
-
-// CancelSubscription 取消订阅
-func (s *SQLiteDB) CancelSubscription(id string) error {
-	query := `UPDATE user_subscriptions SET status = 'cancelled' WHERE id = ?`
-	_, err := s.db.Exec(query, id)
-	return err
-}
-

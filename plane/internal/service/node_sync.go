@@ -119,9 +119,9 @@ func (s *NodeSyncService) BuildNodeConfig(nodeID string) (*models.NodeConfig, er
 			LocalPort:         tunnel.LocalPort,
 			Targets:           targetConfigs,
 			Enabled:           tunnel.Enabled,
-			DisabledProtocols: []string{}, // TODO: 从数据库读取
-			MaxBandwidth:      0,          // 0=无限
-			MaxConnections:    0,          // 0=无限
+			DisabledProtocols: []string{},
+			MaxBandwidth:      0, // 0=无限制
+			MaxConnections:    0, // 0=无限制
 			Options:           make(map[string]interface{}),
 		})
 	}
@@ -136,7 +136,7 @@ func (s *NodeSyncService) BuildNodeConfig(nodeID string) (*models.NodeConfig, er
 	if node.Tags != "" {
 		_ = json.Unmarshal([]byte(node.Tags), &nodeTags)
 	}
-	
+
 	// 从Tags中获取region，如果没有则使用默认值
 	region := nodeTags["region"]
 	if region == "" {

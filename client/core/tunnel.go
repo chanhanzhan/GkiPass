@@ -273,7 +273,7 @@ func (tm *TunnelManager) handleTCPConnection(userConn net.Conn, rule *ws.TunnelR
 	}
 
 	target := tm.selectTarget(rule.Targets)
-	targetAddr := fmt.Sprintf("%s:%d", target.Host, target.Port)
+	targetAddr := net.JoinHostPort(target.Host, fmt.Sprintf("%d", target.Port))
 
 	// 连接目标服务器
 	targetConn, err := net.Dial("tcp", targetAddr)

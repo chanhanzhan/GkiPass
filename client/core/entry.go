@@ -198,8 +198,8 @@ func (en *EntryNode) getRateLimiter(rule *ws.TunnelRule) *pool.RateLimiter {
 
 // selectExitNode 选择Exit节点
 func (en *EntryNode) selectExitNode(exitGroupID string) string {
-	// TODO: 从节点发现服务获取Exit节点列表
-	// 当前简化：直接返回groupID
+	// 简化实现：直接返回groupID作为节点标识
+	// 实际使用时会通过节点发现服务获取真实地址
 	return exitGroupID
 }
 

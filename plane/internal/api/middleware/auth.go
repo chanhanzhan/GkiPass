@@ -54,10 +54,22 @@ func JWTAuth(secret string, dbManager *db.Manager) gin.HandlerFunc {
 			}
 		}
 
-		// 解析JWT token
+		// 限制token长度防止DoS攻击
+		const maxTokenLength = 4096 // 4KB限制
+		if len(tokenString) > maxTokenLength {
+			c.JSON(401, gin.H{"error": "Token too large"})
+			c.Abort()
+			return
+		}
+
+		// 解析JWT token，使用安全的解析选项
 		token, err := jwt.ParseWithClaims(tokenString, &JWTClaims{}, func(token *jwt.Token) (interface{}, error) {
+			// 验证签名算法防止算法混淆攻击
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, jwt.ErrSignatureInvalid
+			}
 			return []byte(secret), nil
-		})
+		}, jwt.WithValidMethods([]string{"HS256"}), jwt.WithLeeway(5*time.Second))
 
 		if err != nil || !token.Valid {
 			c.JSON(401, gin.H{"error": "Invalid or expired token"})
@@ -139,5 +151,3 @@ func GenerateJWT(userID, username, role, secret string, expirationHours int) (st
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString([]byte(secret))
 }
-
-

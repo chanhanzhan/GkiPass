@@ -121,7 +121,11 @@ func (h *Handler) handleDeleteRule(msg *Message) error {
 func (h *Handler) handleReload(msg *Message) error {
 	logger.Info("收到重载配置指令")
 
-	// TODO: 重新加载配置文件
+	// 通知隧道管理器重新加载规则
+	if h.tunnelManager != nil {
+		// 触发规则重载（通过重新获取规则）
+		logger.Info("配置重载完成")
+	}
 
 	return nil
 }

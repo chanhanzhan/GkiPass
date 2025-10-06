@@ -42,13 +42,11 @@ func NewLoadBalancer(targets []ws.TunnelTarget) *LoadBalancer {
 // Start 启动健康检查
 func (lb *LoadBalancer) Start() {
 	go lb.healthCheckLoop()
-	logger.Info("负载均衡器已启动")
 }
 
 // Stop 停止健康检查
 func (lb *LoadBalancer) Stop() {
 	close(lb.stopChan)
-	logger.Info("负载均衡器已停止")
 }
 
 // SelectTarget 选择目标（加权随机，仅选择健康的目标）
@@ -109,8 +107,6 @@ func (lb *LoadBalancer) UpdateTargets(targets []ws.TunnelTarget) {
 			lb.healthStatus[key] = true
 		}
 	}
-
-	logger.Info("负载均衡器目标已更新", zap.Int("count", len(targets)))
 }
 
 // healthCheckLoop 健康检查循环
@@ -158,7 +154,7 @@ func (lb *LoadBalancer) performHealthCheck() {
 
 // checkTarget 检查单个目标
 func (lb *LoadBalancer) checkTarget(target ws.TunnelTarget) bool {
-	addr := fmt.Sprintf("%s:%d", target.Host, target.Port)
+	addr := net.JoinHostPort(target.Host, fmt.Sprintf("%d", target.Port))
 	conn, err := net.DialTimeout("tcp", addr, 3*time.Second)
 	if err != nil {
 		return false
@@ -192,9 +188,3 @@ func (lb *LoadBalancer) GetHealthyCount() int {
 	}
 	return count
 }
-
-
-
-
-
-

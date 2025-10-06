@@ -1,6 +1,8 @@
 package api
 
 import (
+	"database/sql"
+
 	dbinit "gkipass/plane/db/init"
 	"gkipass/plane/internal/api/response"
 	"gkipass/plane/internal/service"
@@ -22,6 +24,34 @@ func NewPlanHandler(app *App) *PlanHandler {
 	return &PlanHandler{
 		app:         app,
 		planService: service.NewPlanService(app.DB),
+	}
+}
+
+// planToResponse 将数据库Plan转换为API响应格式
+func planToResponse(plan *dbinit.Plan) map[string]interface{} {
+	allowedNodeIDs := ""
+	if plan.AllowedNodeIDs.Valid {
+		allowedNodeIDs = plan.AllowedNodeIDs.String
+	}
+
+	return map[string]interface{}{
+		"id":               plan.ID,
+		"name":             plan.Name,
+		"max_rules":        plan.MaxRules,
+		"max_traffic":      plan.MaxTraffic,
+		"traffic":          plan.Traffic,
+		"max_tunnels":      plan.MaxTunnels,
+		"max_bandwidth":    plan.MaxBandwidth,
+		"max_connections":  plan.MaxConnections,
+		"max_connect_ips":  plan.MaxConnectIPs,
+		"allowed_node_ids": allowedNodeIDs,
+		"billing_cycle":    plan.BillingCycle,
+		"duration":         plan.Duration,
+		"price":            plan.Price,
+		"enabled":          plan.Enabled,
+		"created_at":       plan.CreatedAt,
+		"updated_at":       plan.UpdatedAt,
+		"description":      plan.Description,
 	}
 }
 
@@ -55,7 +85,7 @@ func (h *PlanHandler) Create(c *gin.Context) {
 		MaxBandwidth:   req.MaxBandwidth,
 		MaxConnections: req.MaxConnections,
 		MaxConnectIPs:  req.MaxConnectIPs,
-		AllowedNodeIDs: req.AllowedNodeIDs,
+		AllowedNodeIDs: sql.NullString{String: req.AllowedNodeIDs, Valid: req.AllowedNodeIDs != ""},
 		BillingCycle:   req.BillingCycle,
 		Price:          req.Price,
 		Enabled:        req.Enabled,
@@ -68,7 +98,7 @@ func (h *PlanHandler) Create(c *gin.Context) {
 		return
 	}
 
-	response.SuccessWithMessage(c, "Plan created successfully", plan)
+	response.SuccessWithMessage(c, "Plan created successfully", planToResponse(plan))
 }
 
 // List 列出套餐
@@ -86,7 +116,13 @@ func (h *PlanHandler) List(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, plans)
+	// Convert plans to response format
+	responsePlans := make([]map[string]interface{}, len(plans))
+	for i, plan := range plans {
+		responsePlans[i] = planToResponse(plan)
+	}
+
+	response.Success(c, responsePlans)
 }
 
 // Get 获取套餐详情
@@ -103,7 +139,7 @@ func (h *PlanHandler) Get(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, plan)
+	response.Success(c, planToResponse(plan))
 }
 
 // Update 更新套餐（仅管理员）
@@ -130,7 +166,7 @@ func (h *PlanHandler) Update(c *gin.Context) {
 	plan.MaxBandwidth = req.MaxBandwidth
 	plan.MaxConnections = req.MaxConnections
 	plan.MaxConnectIPs = req.MaxConnectIPs
-	plan.AllowedNodeIDs = req.AllowedNodeIDs
+	plan.AllowedNodeIDs = sql.NullString{String: req.AllowedNodeIDs, Valid: req.AllowedNodeIDs != ""}
 	plan.BillingCycle = req.BillingCycle
 	plan.Price = req.Price
 	plan.Enabled = req.Enabled
@@ -142,7 +178,7 @@ func (h *PlanHandler) Update(c *gin.Context) {
 		return
 	}
 
-	response.SuccessWithMessage(c, "Plan updated successfully", plan)
+	response.SuccessWithMessage(c, "Plan updated successfully", planToResponse(plan))
 }
 
 // Delete 删除套餐（仅管理员）

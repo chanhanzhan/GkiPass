@@ -138,20 +138,23 @@ type NodeStatus struct {
 
 // Plan 套餐
 type Plan struct {
-	ID             string    `json:"id" db:"id"`                             // 套餐ID
-	Name           string    `json:"name" db:"name"`                         // 套餐名称
-	MaxRules       int       `json:"max_rules" db:"max_rules"`               // 最大规则数（0=无限）
-	MaxTraffic     int64     `json:"max_traffic" db:"max_traffic"`           // 最大流量(bytes)（0=无限）
-	MaxBandwidth   int64     `json:"max_bandwidth" db:"max_bandwidth"`       // 最大带宽(bps)（0=无限）
-	MaxConnections int       `json:"max_connections" db:"max_connections"`   // 最大连接数（0=无限）
-	MaxConnectIPs  int       `json:"max_connect_ips" db:"max_connect_ips"`   // 最大连接IP数（0=无限）
-	AllowedNodeIDs string    `json:"allowed_node_ids" db:"allowed_node_ids"` // 允许使用的节点ID列表（JSON，空=全部）
-	BillingCycle   string    `json:"billing_cycle" db:"billing_cycle"`       // 计费周期: monthly/yearly/permanent
-	Price          float64   `json:"price" db:"price"`                       // 价格
-	Enabled        bool      `json:"enabled" db:"enabled"`                   // 是否启用
-	CreatedAt      time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at" db:"updated_at"`
-	Description    string    `json:"description" db:"description"`
+	ID             string         `json:"id" db:"id"`                             // 套餐ID
+	Name           string         `json:"name" db:"name"`                         // 套餐名称
+	MaxRules       int            `json:"max_rules" db:"max_rules"`               // 最大规则数（0=无限）
+	MaxTraffic     int64          `json:"max_traffic" db:"max_traffic"`           // 最大流量(bytes)（0=无限）
+	Traffic        int64          `json:"traffic" db:"traffic"`                   // 流量配额(GB)
+	MaxTunnels     int            `json:"max_tunnels" db:"max_tunnels"`           // 最大隧道数
+	MaxBandwidth   int64          `json:"max_bandwidth" db:"max_bandwidth"`       // 最大带宽(bps)（0=无限）
+	MaxConnections int            `json:"max_connections" db:"max_connections"`   // 最大连接数（0=无限）
+	MaxConnectIPs  int            `json:"max_connect_ips" db:"max_connect_ips"`   // 最大连接IP数（0=无限）
+	AllowedNodeIDs sql.NullString `json:"allowed_node_ids" db:"allowed_node_ids"` // 允许使用的节点ID列表（JSON，空=全部）
+	BillingCycle   string         `json:"billing_cycle" db:"billing_cycle"`       // 计费周期: monthly/yearly/permanent
+	Duration       int            `json:"duration" db:"duration"`                 // 有效期（天数）
+	Price          float64        `json:"price" db:"price"`                       // 价格
+	Enabled        bool           `json:"enabled" db:"enabled"`                   // 是否启用
+	CreatedAt      time.Time      `json:"created_at" db:"created_at"`
+	UpdatedAt      time.Time      `json:"updated_at" db:"updated_at"`
+	Description    string         `json:"description" db:"description"`
 }
 
 // UserSubscription 用户订阅
@@ -165,6 +168,22 @@ type UserSubscription struct {
 	UsedRules    int       `json:"used_rules" db:"used_rules"`
 	UsedTraffic  int64     `json:"used_traffic" db:"used_traffic"`
 	TrafficReset time.Time `json:"traffic_reset" db:"traffic_reset"` // 流量重置时间
+	CreatedAt    time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at" db:"updated_at"`
+}
+
+// Subscription 订阅信息（简化版）
+type Subscription struct {
+	ID           string    `json:"id" db:"id"`
+	UserID       string    `json:"user_id" db:"user_id"`
+	PlanID       string    `json:"plan_id" db:"plan_id"`
+	Status       string    `json:"status" db:"status"`         // active/expired/cancelled
+	StartAt      time.Time `json:"start_at" db:"start_at"`     // 开始时间
+	ExpiresAt    time.Time `json:"expires_at" db:"expires_at"` // 过期时间
+	Traffic      int64     `json:"traffic" db:"traffic"`       // 总流量(bytes)
+	UsedTraffic  int64     `json:"used_traffic" db:"used_traffic"`
+	MaxTunnels   int       `json:"max_tunnels" db:"max_tunnels"`
+	MaxBandwidth int64     `json:"max_bandwidth" db:"max_bandwidth"`
 	CreatedAt    time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at" db:"updated_at"`
 }

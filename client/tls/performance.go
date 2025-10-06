@@ -11,21 +11,21 @@ func GetHighPerformanceTLSConfig(cert *tls.Certificate) *tls.Config {
 		// 使用TLS 1.3（支持0-RTT）
 		MinVersion: tls.VersionTLS13,
 		MaxVersion: tls.VersionTLS13,
-		
+
 		// 优先使用硬件加速的加密套件
 		CipherSuites: []uint16{
 			tls.TLS_AES_128_GCM_SHA256,       // AES-NI硬件加速
 			tls.TLS_CHACHA20_POLY1305_SHA256, // 软件实现快速
 			tls.TLS_AES_256_GCM_SHA384,
 		},
-		
+
 		// 启用会话票据复用（0-RTT必需）
 		SessionTicketsDisabled: false,
 		ClientSessionCache:     tls.NewLRUClientSessionCache(10000),
-		
+
 		// 跳过证书验证（节点间信任）
 		InsecureSkipVerify: true,
-		
+
 		// NextProtos for ALPN
 		NextProtos: []string{"gkipass-v1", "h2"},
 	}
@@ -53,21 +53,21 @@ func DialWith0RTT(network, addr string, config *tls.Config, earlyData []byte) (*
 		return nil, false, err
 	}
 
-	// Go 标准库 crypto/tls 不直接暴露 Used0RTT 字段
-	// 只能通过会话重用和 earlyData 非空来推测
-	used0RTT := false // 默认不支持直接检测
+	// Go标准库crypto/tls不直接暴露Used0RTT字段
+	// 通过会话重用和earlyData非空来推测
+	used0RTT := false
 
-	// 发送 early data（Go 标准库不支持 0-RTT 直接发送，模拟行为）
+	// 发送early data（在TLS握手后立即发送）
 	if len(earlyData) > 0 {
 		if _, err := conn.Write(earlyData); err != nil {
 			conn.Close()
 			return nil, false, err
 		}
 	}
-		if _, err := conn.Write(earlyData); err != nil {
-			conn.Close()
-			return nil, false, err
-		}
+	if _, err := conn.Write(earlyData); err != nil {
+		conn.Close()
+		return nil, false, err
+	}
 	return conn, used0RTT, nil
 }
 

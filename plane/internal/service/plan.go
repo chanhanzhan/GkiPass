@@ -153,7 +153,7 @@ func (s *PlanService) SubscribeUserToPlan(userID, planID string, months int) (*d
 		UpdatedAt:    time.Now(),
 	}
 
-	if err := s.db.DB.SQLite.CreateSubscription(sub); err != nil {
+	if err := s.db.DB.SQLite.CreateSubscriptionFromUserSubscription(sub); err != nil {
 		logger.Error("创建订阅失败",
 			zap.String("userID", userID),
 			zap.String("planID", planID),
