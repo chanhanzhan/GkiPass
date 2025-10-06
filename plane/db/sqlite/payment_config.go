@@ -161,4 +161,3 @@ func (s *SQLiteDB) ListPendingMonitors() ([]*PaymentMonitor, error) {
 	}
 	return monitors, rows.Err()
 }
-

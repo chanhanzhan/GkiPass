@@ -81,7 +81,10 @@ func CreateUserCK(userID string, expiresIn time.Duration) *dbinit.ConnectionKey 
 // GenerateID 生成唯一ID
 func GenerateID() string {
 	bytes := make([]byte, 16)
-	rand.Read(bytes)
+	if _, err := rand.Read(bytes); err != nil {
+		logger.Error("生成ID失败", zap.Error(err))
+		return ""
+	}
 	return hex.EncodeToString(bytes)
 }
 

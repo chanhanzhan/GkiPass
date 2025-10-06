@@ -30,7 +30,9 @@ func GetPortManager(dbManager *db.Manager) *PortManager {
 			groupPorts: make(map[string]map[int]string),
 		}
 		// 初始化时加载已占用端口
-		portManagerInstance.loadOccupiedPorts()
+		if err := portManagerInstance.loadOccupiedPorts(); err != nil {
+			logger.Error("初始化端口管理器失败", zap.Error(err))
+		}
 	})
 	return portManagerInstance
 }

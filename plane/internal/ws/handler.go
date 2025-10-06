@@ -87,9 +87,14 @@ func (h *Handler) readPump(conn *NodeConnection) {
 		conn.Close()
 	}()
 
-	conn.Conn.SetReadDeadline(time.Now().Add(90 * time.Second))
+	if err := conn.Conn.SetReadDeadline(time.Now().Add(90 * time.Second)); err != nil {
+		logger.Error("设置读取超时失败", zap.Error(err))
+		return
+	}
 	conn.Conn.SetPongHandler(func(string) error {
-		conn.Conn.SetReadDeadline(time.Now().Add(90 * time.Second))
+		if err := conn.Conn.SetReadDeadline(time.Now().Add(90 * time.Second)); err != nil {
+			logger.Error("设置读取超时失败", zap.Error(err))
+		}
 		conn.UpdateLastSeen()
 		return nil
 	})
@@ -122,7 +127,10 @@ func (h *Handler) writePump(conn *NodeConnection) {
 	for {
 		select {
 		case msg, ok := <-conn.Send:
-			conn.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if err := conn.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
+				logger.Error("设置写入超时失败", zap.Error(err))
+				return
+			}
 			if !ok {
 				conn.Conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
@@ -137,7 +145,10 @@ func (h *Handler) writePump(conn *NodeConnection) {
 
 		case <-ticker.C:
 			// 发送 Ping
-			conn.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if err := conn.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
+				logger.Error("设置写入超时失败", zap.Error(err))
+				return
+			}
 			if err := conn.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}

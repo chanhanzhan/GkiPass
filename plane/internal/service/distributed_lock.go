@@ -31,7 +31,10 @@ func (lm *LockManager) NewLock(ctx context.Context, key string, expiration time.
 		expiration = 30 * time.Second
 	}
 	b := make([]byte, 16)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		// 如果随机数生成失败，使用时间戳作为备选方案
+		b = []byte(fmt.Sprintf("%d", time.Now().UnixNano()))
+	}
 	return &DistributedLock{
 		redis:      lm.redis,
 		key:        fmt.Sprintf("lock:%s", key),
@@ -66,6 +69,11 @@ func (lm *LockManager) WithLock(ctx context.Context, key string, expiration time
 	if err := lock.Lock(); err != nil {
 		return err
 	}
-	defer lock.Unlock()
+	defer func() {
+		if err := lock.Unlock(); err != nil {
+			// 记录解锁错误，但不影响主流程
+			fmt.Printf("failed to unlock: %v\n", err)
+		}
+	}()
 	return fn()
 }

@@ -77,7 +77,13 @@ func (tl *TrafficLimiter) AddTraffic(userID string, bytes int64) error {
 	quota.LastUpdate = time.Now()
 
 	// 异步更新数据库
-	go tl.planService.AddTrafficUsage(userID, bytes)
+	go func() {
+		if err := tl.planService.AddTrafficUsage(userID, bytes); err != nil {
+			logger.Error("更新流量使用失败",
+				zap.String("userID", userID),
+				zap.Error(err))
+		}
+	}()
 
 	logger.Debug("流量使用已更新",
 		zap.String("userID", userID),

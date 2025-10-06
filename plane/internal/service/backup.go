@@ -51,12 +51,16 @@ func (bs *BackupService) backupLoop() {
 	defer ticker.Stop()
 
 	// 启动时立即执行一次备份
-	bs.Backup()
+	if err := bs.Backup(); err != nil {
+		logger.Error("初始备份失败", zap.Error(err))
+	}
 
 	for {
 		select {
 		case <-ticker.C:
-			bs.Backup()
+			if err := bs.Backup(); err != nil {
+				logger.Error("定时备份失败", zap.Error(err))
+			}
 		case <-bs.stopChan:
 			return
 		}
@@ -123,4 +127,3 @@ func (bs *BackupService) Restore(backupPath string) error {
 	logger.Info("数据库恢复成功", zap.String("backup_path", backupPath))
 	return nil
 }
-

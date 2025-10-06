@@ -61,7 +61,18 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Check if web directory exists
+        id: check-web
+        run: |
+          if [ -f "web/package.json" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "⚠️ web/package.json not found, skipping web tests"
+          fi
+
       - name: Setup Node.js
+        if: steps.check-web.outputs.exists == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -69,14 +80,17 @@ jobs:
           cache-dependency-path: web/package.json
 
       - name: Install dependencies
+        if: steps.check-web.outputs.exists == 'true'
         working-directory: web
         run: npm ci
 
       - name: Run linter
+        if: steps.check-web.outputs.exists == 'true'
         working-directory: web
         run: npm run lint
 
       - name: Build
+        if: steps.check-web.outputs.exists == 'true'
         working-directory: web
         run: npm run build
 
