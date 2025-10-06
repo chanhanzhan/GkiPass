@@ -1,0 +1,296 @@
+name: Auto PR Creation
+
+on:
+  push:
+    branches:
+      - 'feature/**'
+      - 'fix/**'
+      - 'hotfix/**'
+      - 'develop'
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  create-pr:
+    name: Create Pull Request
+    runs-on: ubuntu-latest
+    # 只在非主分支推送时运行
+    if: github.ref != 'refs/heads/master' && github.ref != 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref }}
+
+      - name: Extract branch info
+        id: branch-info
+        run: |
+          BRANCH_NAME=${GITHUB_REF#refs/heads/}
+          echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
+          
+          # 确定目标分支
+          if [[ "$BRANCH_NAME" == feature/* ]] || [[ "$BRANCH_NAME" == fix/* ]]; then
+            TARGET_BRANCH="develop"
+          elif [[ "$BRANCH_NAME" == hotfix/* ]]; then
+            TARGET_BRANCH="master"
+          elif [[ "$BRANCH_NAME" == develop ]]; then
+            TARGET_BRANCH="master"
+          else
+            TARGET_BRANCH="master"
+          fi
+          echo "target_branch=$TARGET_BRANCH" >> $GITHUB_OUTPUT
+          
+          # 提取分支类型
+          BRANCH_TYPE=$(echo "$BRANCH_NAME" | cut -d'/' -f1)
+          echo "branch_type=$BRANCH_TYPE" >> $GITHUB_OUTPUT
+
+      - name: Generate commit summary
+        id: summary
+        run: |
+          # 获取最近的提交
+          COMMITS=$(git log origin/${{ steps.branch-info.outputs.target_branch }}..HEAD --pretty=format:"- %s (%h) - %an" --no-merges | head -20)
+          
+          # 统计更改
+          STATS=$(git diff origin/${{ steps.branch-info.outputs.target_branch }}..HEAD --shortstat)
+          
+          # 获取更改的文件
+          CHANGED_FILES=$(git diff origin/${{ steps.branch-info.outputs.target_branch }}..HEAD --name-only | head -30)
+          
+          # 统计文件类型
+          GO_FILES=$(echo "$CHANGED_FILES" | grep '\.go$' | wc -l)
+          TS_FILES=$(echo "$CHANGED_FILES" | grep '\.tsx\?$' | wc -l)
+          JS_FILES=$(echo "$CHANGED_FILES" | grep '\.jsx\?$' | wc -l)
+          
+          echo "commits<<EOF" >> $GITHUB_OUTPUT
+          echo "$COMMITS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          echo "stats=$STATS" >> $GITHUB_OUTPUT
+          
+          echo "changed_files<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGED_FILES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          echo "go_files=$GO_FILES" >> $GITHUB_OUTPUT
+          echo "ts_files=$TS_FILES" >> $GITHUB_OUTPUT
+          echo "js_files=$JS_FILES" >> $GITHUB_OUTPUT
+
+      - name: Determine PR labels
+        id: labels
+        run: |
+          LABELS="automated"
+          BRANCH_TYPE="${{ steps.branch-info.outputs.branch_type }}"
+          
+          case "$BRANCH_TYPE" in
+            feature)
+              LABELS="$LABELS,enhancement"
+              ;;
+            fix|hotfix)
+              LABELS="$LABELS,bug"
+              ;;
+            develop)
+              LABELS="$LABELS,release"
+              ;;
+          esac
+          
+          # 根据文件类型添加标签
+          if [ ${{ steps.summary.outputs.go_files }} -gt 0 ]; then
+            LABELS="$LABELS,backend"
+          fi
+          
+          if [ ${{ steps.summary.outputs.ts_files }} -gt 0 ] || [ ${{ steps.summary.outputs.js_files }} -gt 0 ]; then
+            LABELS="$LABELS,frontend"
+          fi
+          
+          echo "labels=$LABELS" >> $GITHUB_OUTPUT
+
+      - name: Generate PR emoji and title
+        id: pr-title
+        run: |
+          BRANCH_TYPE="${{ steps.branch-info.outputs.branch_type }}"
+          BRANCH_NAME="${{ steps.branch-info.outputs.branch_name }}"
+          
+          case "$BRANCH_TYPE" in
+            feature)
+              EMOJI="✨"
+              TITLE_PREFIX="Feature"
+              ;;
+            fix)
+              EMOJI="🐛"
+              TITLE_PREFIX="Fix"
+              ;;
+            hotfix)
+              EMOJI="🚑"
+              TITLE_PREFIX="Hotfix"
+              ;;
+            develop)
+              EMOJI="🚀"
+              TITLE_PREFIX="Release"
+              ;;
+            *)
+              EMOJI="🔧"
+              TITLE_PREFIX="Update"
+              ;;
+          esac
+          
+          # 从最后一个提交中提取标题
+          LAST_COMMIT=$(git log -1 --pretty=%s)
+          
+          TITLE="$EMOJI $TITLE_PREFIX: $LAST_COMMIT"
+          
+          echo "title=$TITLE" >> $GITHUB_OUTPUT
+          echo "emoji=$EMOJI" >> $GITHUB_OUTPUT
+
+      - name: Check if PR already exists
+        id: check-pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: pulls } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              head: `${context.repo.owner}:${{ steps.branch-info.outputs.branch_name }}`,
+              base: '${{ steps.branch-info.outputs.target_branch }}',
+              state: 'open'
+            });
+            
+            return pulls.length > 0;
+          result-encoding: string
+
+      - name: Create Pull Request
+        if: steps.check-pr.outputs.result == 'false'
+        id: create-pr
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ steps.branch-info.outputs.branch_name }}
+          base: ${{ steps.branch-info.outputs.target_branch }}
+          title: ${{ steps.pr-title.outputs.title }}
+          body: |
+            ## ${{ steps.pr-title.outputs.emoji }} 自动生成的拉取请求
+            
+            **源分支**: `${{ steps.branch-info.outputs.branch_name }}`  
+            **目标分支**: `${{ steps.branch-info.outputs.target_branch }}`  
+            **类型**: `${{ steps.branch-info.outputs.branch_type }}`
+            
+            ---
+            
+            ### 📝 提交摘要
+            
+            ${{ steps.summary.outputs.commits }}
+            
+            ### 📊 变更统计
+            
+            ```
+            ${{ steps.summary.outputs.stats }}
+            ```
+            
+            **文件变更统计**:
+            - Go 文件: ${{ steps.summary.outputs.go_files }}
+            - TypeScript 文件: ${{ steps.summary.outputs.ts_files }}
+            - JavaScript 文件: ${{ steps.summary.outputs.js_files }}
+            
+            ### 📁 变更文件
+            
+            <details>
+            <summary>查看所有变更文件</summary>
+            
+            ```
+            ${{ steps.summary.outputs.changed_files }}
+            ```
+            
+            </details>
+            
+            ---
+            
+            ### ✅ 检查清单
+            
+            - [ ] 代码已经过本地测试
+            - [ ] 已添加必要的单元测试
+            - [ ] 已更新相关文档
+            - [ ] 代码符合项目规范
+            - [ ] 没有破坏性变更
+            
+            ### 🔍 审查要点
+            
+            请重点关注以下方面：
+            - 代码质量和可读性
+            - 性能影响
+            - 安全性考虑
+            - 向后兼容性
+            
+            ---
+            
+            > 🤖 此 PR 由 GitHub Actions 自动创建
+            > 📅 创建时间: ${{ github.event.head_commit.timestamp }}
+            > 👤 提交者: ${{ github.actor }}
+          labels: ${{ steps.labels.outputs.labels }}
+          draft: false
+
+      - name: Comment on existing PR
+        if: steps.check-pr.outputs.result == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: pulls } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              head: `${context.repo.owner}:${{ steps.branch-info.outputs.branch_name }}`,
+              base: '${{ steps.branch-info.outputs.target_branch }}',
+              state: 'open'
+            });
+            
+            if (pulls.length > 0) {
+              const pr = pulls[0];
+              
+              const comment = `## 🔄 新的推送检测到
+              
+              **推送时间**: \`${{ github.event.head_commit.timestamp }}\`  
+              **提交者**: @${{ github.actor }}
+              
+              ### 📝 最新提交
+              
+              ${{ steps.summary.outputs.commits }}
+              
+              ### 📊 累计变更
+              
+              \`\`\`
+              ${{ steps.summary.outputs.stats }}
+              \`\`\`
+              
+              ---
+              
+              > 🤖 自动更新通知
+              `;
+              
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                body: comment
+              });
+            }
+
+      - name: Request reviewers
+        if: steps.check-pr.outputs.result == 'false' && steps.create-pr.outputs.pull-request-number
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // 可以根据需要配置审查者
+            // 这里留空，您可以根据团队情况添加
+            const reviewers = [];
+            
+            if (reviewers.length > 0) {
+              await github.rest.pulls.requestReviewers({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_request_number: ${{ steps.create-pr.outputs.pull-request-number }},
+                reviewers: reviewers
+              });
+            }
+

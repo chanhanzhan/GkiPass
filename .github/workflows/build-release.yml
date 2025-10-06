@@ -1,0 +1,237 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+      - 'v*.*.*-*'
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build-backend:
+    name: Build Backend Components
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+        target:
+          - goos: linux
+            goarch: amd64
+            suffix: linux-amd64
+          - goos: linux
+            goarch: arm64
+            suffix: linux-arm64
+          - goos: windows
+            goarch: amd64
+            suffix: windows-amd64.exe
+          - goos: darwin
+            goarch: amd64
+            suffix: darwin-amd64
+          - goos: darwin
+            goarch: arm64
+            suffix: darwin-arm64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: Get dependencies
+        run: |
+          go mod download
+          cd client && go mod download
+
+      - name: Build Plane (Server)
+        env:
+          GOOS: ${{ matrix.target.goos }}
+          GOARCH: ${{ matrix.target.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          go build -ldflags="-s -w -X main.Version=$VERSION -X main.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -o bin/gkipass-plane-${{ matrix.target.suffix }} \
+            plane/cmd/main.go
+
+      - name: Build Client
+        env:
+          GOOS: ${{ matrix.target.goos }}
+          GOARCH: ${{ matrix.target.goarch }}
+          CGO_ENABLED: 0
+        working-directory: client
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          go build -ldflags="-s -w -X main.Version=$VERSION -X main.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -o ../bin/gkipass-client-${{ matrix.target.suffix }} \
+            cmd/main.go
+
+      - name: Package binaries
+        run: |
+          cd bin
+          if [[ "${{ matrix.target.goos }}" == "windows" ]]; then
+            zip gkipass-${{ matrix.target.suffix }}.zip gkipass-*-${{ matrix.target.suffix }}
+          else
+            tar czf gkipass-${{ matrix.target.suffix }}.tar.gz gkipass-*-${{ matrix.target.suffix }}
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: gkipass-${{ matrix.target.suffix }}
+          path: bin/gkipass-${{ matrix.target.suffix }}.*
+          retention-days: 30
+
+  build-web:
+    name: Build Web Frontend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: web/package.json
+
+      - name: Install dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Build web
+        working-directory: web
+        run: npm run build
+        env:
+          NODE_ENV: production
+
+      - name: Package web build
+        run: |
+          cd web
+          tar czf ../gkipass-web.tar.gz .next public package.json next.config.ts
+
+      - name: Upload web artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gkipass-web
+          path: gkipass-web.tar.gz
+          retention-days: 30
+
+  create-release:
+    name: Create GitHub Release
+    needs: [build-backend, build-web]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # 获取上一个标签
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          
+          if [ -z "$PREV_TAG" ]; then
+            CHANGELOG=$(git log --pretty=format:"- %s (%h) - %an" --no-merges)
+          else
+            CHANGELOG=$(git log $PREV_TAG..HEAD --pretty=format:"- %s (%h) - %an" --no-merges)
+          fi
+          
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Release ${{ github.ref_name }}
+          body: |
+            ## 🚀 GKI Pass ${{ github.ref_name }}
+            
+            ### 📦 下载
+            
+            请根据您的操作系统下载相应的版本：
+            
+            - **Linux (amd64)**: gkipass-linux-amd64.tar.gz
+            - **Linux (arm64)**: gkipass-linux-arm64.tar.gz
+            - **Windows (amd64)**: gkipass-windows-amd64.exe.zip
+            - **macOS (Intel)**: gkipass-darwin-amd64.tar.gz
+            - **macOS (Apple Silicon)**: gkipass-darwin-arm64.tar.gz
+            - **Web Frontend**: gkipass-web.tar.gz
+            
+            ### 📝 更新日志
+            
+            ${{ steps.changelog.outputs.changelog }}
+            
+            ### 🔧 安装说明
+            
+            #### 服务端 (Plane)
+            ```bash
+            # Linux/macOS
+            tar xzf gkipass-linux-amd64.tar.gz
+            chmod +x gkipass-plane-linux-amd64
+            ./gkipass-plane-linux-amd64
+            
+            # Windows
+            unzip gkipass-windows-amd64.exe.zip
+            gkipass-plane-windows-amd64.exe
+            ```
+            
+            #### 客户端 (Client)
+            ```bash
+            # Linux/macOS
+            tar xzf gkipass-linux-amd64.tar.gz
+            chmod +x gkipass-client-linux-amd64
+            ./gkipass-client-linux-amd64 -config=config.yaml
+            ```
+            
+            #### Web 前端
+            ```bash
+            tar xzf gkipass-web.tar.gz
+            npm install --production
+            npm start
+            ```
+            
+            ---
+            
+            **完整文档**: [README.md](https://github.com/${{ github.repository }})
+          files: |
+            artifacts/**/*.tar.gz
+            artifacts/**/*.zip
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Notify release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const version = context.ref.replace('refs/tags/', '');
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🎉 版本 ${version} 已发布`,
+              body: `版本 ${version} 已成功编译并发布！\n\n查看发布详情: https://github.com/${context.repo.owner}/${context.repo.repo}/releases/tag/${version}`,
+              labels: ['release', 'automated']
+            });
+
