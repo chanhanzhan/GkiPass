@@ -24,13 +24,16 @@
 - 🔐 **证书管理** - CA/Leaf证书自动生成和管理
 - 📦 **套餐系统** - 灵活的配额和限制管理
 
-### 新增功能（v2.0.0）
+### 新增功能（v2.1.0）
 - 🔐 **验证码系统** - 支持图片验证码和Cloudflare Turnstile
 - 💰 **钱包系统** - 余额管理、充值、交易记录
 - 🔔 **通知系统** - 个人通知和全局系统通知
 - 📢 **公告系统** - 系统公告发布和管理
-- ⚙️ **系统设置** - 动态配置验证码等功能
+- ⚙️ **系统设置** - 动态配置验证码、安全策略、通用设置等
 - 🎨 **现代化UI** - 玻璃态设计，渐变色主题
+- 🔑 **权限系统** - 完善的RBAC权限控制，动态权限刷新
+- 👥 **用户管理增强** - 搜索、过滤、批量操作
+- 📊 **管理员面板** - 独立的管理员面板，统计分析功能
 
 ### 用户体验
 - 🎨 **现代化界面** - 参考哪吒Stats的优秀设计
@@ -58,13 +61,34 @@ cd gkipass
 ```
 
 2. **启动后端**
+
+**方式一：使用启动脚本（推荐）** ⭐
+```bash
+# 交互式启动，自动处理进程冲突
+./start.sh
+
+# 停止服务
+./stop.sh
+```
+
+**方式二：使用 Makefile**
+```bash
+# 编译并运行
+make plane-build
+cd bin && ./gkipass-plane
+
+# 或直接运行（开发模式）
+make plane-run
+```
+
+**方式三：手动启动**
 ```bash
 cd plane
 go mod download
-go build -o ../bin/plane ./cmd
+go build -o ../bin/gkipass-plane ./cmd
 
 cd ../bin
-./plane
+./gkipass-plane
 ```
 
 3. **启动前端**
@@ -85,6 +109,28 @@ npm run dev
 2. 点击「立即注册」创建账号
 3. **第一个注册的用户将自动成为管理员** 👑
 4. 登录后即可使用所有功能
+
+### 常见问题
+
+**问题：注册时一直提示"邮箱已存在"但实际没有该用户**
+
+可能原因：有旧的进程在后台运行占用端口
+
+解决方法：
+```bash
+# 方法1：使用停止脚本
+./stop.sh
+
+# 方法2：手动停止所有进程
+pkill -f plane
+pkill -f "go run.*plane/cmd"
+
+# 方法3：检查进程并手动停止
+ps aux | grep plane
+kill <PID>
+```
+
+**详细故障排查指南**：查看 [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
 
 ---
 
@@ -138,6 +184,21 @@ POST /api/v1/auth/login             # 用户登录
 POST /api/v1/auth/logout            # 用户登出
 ```
 
+### 用户接口
+
+```http
+GET  /api/v1/users/me               # 获取当前用户完整信息（包括订阅、钱包、权限）
+GET  /api/v1/users/permissions      # 获取用户权限详情
+GET  /api/v1/users/profile          # 获取基本信息
+PUT  /api/v1/users/password         # 修改密码
+
+# 管理员接口
+GET  /api/v1/users                  # 获取所有用户列表
+PUT  /api/v1/users/:id/status       # 更新用户状态
+PUT  /api/v1/users/:id/role         # 更新用户角色
+DELETE /api/v1/users/:id            # 删除用户
+```
+
 ### 验证码接口
 
 ```http
@@ -180,8 +241,17 @@ DELETE /api/v1/admin/announcements/:id     # 删除公告
 ### 系统设置接口（管理员）
 
 ```http
-GET /api/v1/admin/settings/captcha  # 获取验证码设置
-PUT /api/v1/admin/settings/captcha  # 更新验证码设置
+# 通用设置
+GET /api/v1/admin/settings/general   # 获取通用设置（站点名称、描述等）
+PUT /api/v1/admin/settings/general   # 更新通用设置
+
+# 安全设置
+GET /api/v1/admin/settings/security  # 获取安全设置（密码策略、登录限制等）
+PUT /api/v1/admin/settings/security  # 更新安全设置
+
+# 验证码设置
+GET /api/v1/admin/settings/captcha   # 获取验证码设置
+PUT /api/v1/admin/settings/captcha   # 更新验证码设置
 ```
 
 完整API文档请参考：[API_DOCUMENTATION.md](./API_DOCUMENTATION.md)
@@ -274,13 +344,15 @@ gkipass/
 - 查看系统公告
 
 ### 管理员功能
-- 用户管理
+- 用户管理（搜索、过滤、角色管理、批量操作）
 - 节点管理
 - 套餐管理
 - 公告发布和管理
 - 系统通知推送
-- 验证码配置
+- 系统设置（通用设置、安全设置、验证码配置）
 - 数据统计和监控
+- 隧道管理（查看所有用户隧道、流量统计）
+- 权限管理
 
 ---
 

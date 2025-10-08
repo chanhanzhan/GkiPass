@@ -286,12 +286,213 @@ CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created
 CREATE INDEX IF NOT EXISTS idx_announcements_enabled ON announcements(enabled);
 CREATE INDEX IF NOT EXISTS idx_announcements_time ON announcements(start_time, end_time);
 
+-- 节点监控配置表
+CREATE TABLE IF NOT EXISTS node_monitoring_config (
+    id TEXT PRIMARY KEY,
+    node_id TEXT NOT NULL UNIQUE,
+    monitoring_enabled INTEGER NOT NULL DEFAULT 1,
+    report_interval INTEGER NOT NULL DEFAULT 60, -- 上报间隔(秒)
+    collect_system_info INTEGER NOT NULL DEFAULT 1, -- 收集系统信息
+    collect_network_stats INTEGER NOT NULL DEFAULT 1, -- 收集网络统计
+    collect_tunnel_stats INTEGER NOT NULL DEFAULT 1, -- 收集隧道统计
+    collect_performance INTEGER NOT NULL DEFAULT 1, -- 收集性能数据
+    data_retention_days INTEGER NOT NULL DEFAULT 30, -- 数据保留天数
+    alert_cpu_threshold REAL NOT NULL DEFAULT 80.0, -- CPU告警阈值
+    alert_memory_threshold REAL NOT NULL DEFAULT 80.0, -- 内存告警阈值
+    alert_disk_threshold REAL NOT NULL DEFAULT 80.0, -- 磁盘告警阈值
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_monitoring_config_node_id ON node_monitoring_config(node_id);
+CREATE INDEX IF NOT EXISTS idx_monitoring_config_enabled ON node_monitoring_config(monitoring_enabled);
+
+-- 节点实时监控数据表
+CREATE TABLE IF NOT EXISTS node_monitoring_data (
+    id TEXT PRIMARY KEY,
+    node_id TEXT NOT NULL,
+    timestamp DATETIME NOT NULL,
+    -- 系统基础信息
+    system_uptime INTEGER NOT NULL DEFAULT 0, -- 系统运行时间(秒)
+    boot_time DATETIME, -- 开机时间
+    -- CPU信息
+    cpu_usage REAL NOT NULL DEFAULT 0, -- CPU使用率(0-100)
+    cpu_load_1m REAL NOT NULL DEFAULT 0, -- 1分钟负载
+    cpu_load_5m REAL NOT NULL DEFAULT 0, -- 5分钟负载
+    cpu_load_15m REAL NOT NULL DEFAULT 0, -- 15分钟负载
+    cpu_cores INTEGER NOT NULL DEFAULT 0, -- CPU核心数
+    -- 内存信息
+    memory_total INTEGER NOT NULL DEFAULT 0, -- 总内存(bytes)
+    memory_used INTEGER NOT NULL DEFAULT 0, -- 已用内存(bytes)
+    memory_available INTEGER NOT NULL DEFAULT 0, -- 可用内存(bytes)
+    memory_usage_percent REAL NOT NULL DEFAULT 0, -- 内存使用率(0-100)
+    -- 磁盘信息
+    disk_total INTEGER NOT NULL DEFAULT 0, -- 总磁盘空间(bytes)
+    disk_used INTEGER NOT NULL DEFAULT 0, -- 已用磁盘空间(bytes)
+    disk_available INTEGER NOT NULL DEFAULT 0, -- 可用磁盘空间(bytes)
+    disk_usage_percent REAL NOT NULL DEFAULT 0, -- 磁盘使用率(0-100)
+    -- 网络信息
+    network_interfaces TEXT, -- 网络接口信息(JSON)
+    bandwidth_in INTEGER NOT NULL DEFAULT 0, -- 入站带宽(bps)
+    bandwidth_out INTEGER NOT NULL DEFAULT 0, -- 出站带宽(bps)
+    -- 连接信息
+    tcp_connections INTEGER NOT NULL DEFAULT 0, -- TCP连接数
+    udp_connections INTEGER NOT NULL DEFAULT 0, -- UDP连接数
+    active_tunnels INTEGER NOT NULL DEFAULT 0, -- 活跃隧道数
+    total_connections INTEGER NOT NULL DEFAULT 0, -- 总连接数
+    -- 流量统计
+    traffic_in_bytes INTEGER NOT NULL DEFAULT 0, -- 入站流量(bytes)
+    traffic_out_bytes INTEGER NOT NULL DEFAULT 0, -- 出站流量(bytes)
+    packets_in INTEGER NOT NULL DEFAULT 0, -- 入站数据包数
+    packets_out INTEGER NOT NULL DEFAULT 0, -- 出站数据包数
+    -- 错误统计
+    connection_errors INTEGER NOT NULL DEFAULT 0, -- 连接错误数
+    tunnel_errors INTEGER NOT NULL DEFAULT 0, -- 隧道错误数
+    -- 性能指标
+    avg_response_time REAL NOT NULL DEFAULT 0, -- 平均响应时间(ms)
+    max_response_time REAL NOT NULL DEFAULT 0, -- 最大响应时间(ms)
+    min_response_time REAL NOT NULL DEFAULT 0, -- 最小响应时间(ms)
+    -- 应用级信息
+    app_version TEXT, -- 应用版本
+    go_version TEXT, -- Go版本
+    os_info TEXT, -- 操作系统信息
+    -- 配置信息
+    node_config_version TEXT, -- 节点配置版本
+    last_config_update DATETIME, -- 最后配置更新时间
+    FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_monitoring_data_node_id ON node_monitoring_data(node_id);
+CREATE INDEX IF NOT EXISTS idx_monitoring_data_timestamp ON node_monitoring_data(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_monitoring_data_node_time ON node_monitoring_data(node_id, timestamp DESC);
+
+-- 节点性能历史数据表（聚合数据）
+CREATE TABLE IF NOT EXISTS node_performance_history (
+    id TEXT PRIMARY KEY,
+    node_id TEXT NOT NULL,
+    date DATE NOT NULL, -- 统计日期
+    aggregation_type TEXT NOT NULL CHECK(aggregation_type IN ('hourly', 'daily', 'monthly')),
+    aggregation_time DATETIME NOT NULL, -- 聚合时间点
+    -- 平均值统计
+    avg_cpu_usage REAL NOT NULL DEFAULT 0,
+    avg_memory_usage REAL NOT NULL DEFAULT 0,
+    avg_disk_usage REAL NOT NULL DEFAULT 0,
+    avg_bandwidth_in INTEGER NOT NULL DEFAULT 0,
+    avg_bandwidth_out INTEGER NOT NULL DEFAULT 0,
+    avg_connections INTEGER NOT NULL DEFAULT 0,
+    avg_response_time REAL NOT NULL DEFAULT 0,
+    -- 最大值统计
+    max_cpu_usage REAL NOT NULL DEFAULT 0,
+    max_memory_usage REAL NOT NULL DEFAULT 0,
+    max_connections INTEGER NOT NULL DEFAULT 0,
+    max_response_time REAL NOT NULL DEFAULT 0,
+    -- 流量统计
+    total_traffic_in INTEGER NOT NULL DEFAULT 0,
+    total_traffic_out INTEGER NOT NULL DEFAULT 0,
+    total_packets_in INTEGER NOT NULL DEFAULT 0,
+    total_packets_out INTEGER NOT NULL DEFAULT 0,
+    -- 错误统计
+    total_errors INTEGER NOT NULL DEFAULT 0,
+    -- 可用性统计
+    uptime_seconds INTEGER NOT NULL DEFAULT 0, -- 在线时间(秒)
+    downtime_seconds INTEGER NOT NULL DEFAULT 0, -- 离线时间(秒)
+    availability_percent REAL NOT NULL DEFAULT 0, -- 可用性百分比
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_performance_history_node_id ON node_performance_history(node_id);
+CREATE INDEX IF NOT EXISTS idx_performance_history_date ON node_performance_history(date DESC);
+CREATE INDEX IF NOT EXISTS idx_performance_history_type ON node_performance_history(aggregation_type);
+CREATE INDEX IF NOT EXISTS idx_performance_history_time ON node_performance_history(aggregation_time DESC);
+
+-- 监控权限配置表
+CREATE TABLE IF NOT EXISTS monitoring_permissions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    node_id TEXT, -- NULL表示全局配置
+    permission_type TEXT NOT NULL CHECK(permission_type IN ('view_basic', 'view_detailed', 'view_system', 'view_network', 'disabled')),
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_by TEXT NOT NULL, -- 管理员ID
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    description TEXT,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+    UNIQUE(user_id, node_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_monitoring_permissions_user_id ON monitoring_permissions(user_id);
+CREATE INDEX IF NOT EXISTS idx_monitoring_permissions_node_id ON monitoring_permissions(node_id);
+CREATE INDEX IF NOT EXISTS idx_monitoring_permissions_type ON monitoring_permissions(permission_type);
+
+-- 节点告警规则表
+CREATE TABLE IF NOT EXISTS node_alert_rules (
+    id TEXT PRIMARY KEY,
+    node_id TEXT, -- NULL表示全局规则
+    rule_name TEXT NOT NULL,
+    metric_type TEXT NOT NULL CHECK(metric_type IN ('cpu', 'memory', 'disk', 'network', 'connections', 'response_time', 'uptime')),
+    operator TEXT NOT NULL CHECK(operator IN ('>', '<', '>=', '<=', '=', '!=')),
+    threshold_value REAL NOT NULL,
+    duration_seconds INTEGER NOT NULL DEFAULT 60, -- 持续时间
+    severity TEXT NOT NULL DEFAULT 'warning' CHECK(severity IN ('info', 'warning', 'critical')),
+    enabled INTEGER NOT NULL DEFAULT 1,
+    notification_channels TEXT, -- 通知渠道(JSON)
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_alert_rules_node_id ON node_alert_rules(node_id);
+CREATE INDEX IF NOT EXISTS idx_alert_rules_enabled ON node_alert_rules(enabled);
+CREATE INDEX IF NOT EXISTS idx_alert_rules_severity ON node_alert_rules(severity);
+
+-- 节点告警历史表
+CREATE TABLE IF NOT EXISTS node_alert_history (
+    id TEXT PRIMARY KEY,
+    rule_id TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    alert_type TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    message TEXT NOT NULL,
+    metric_value REAL,
+    threshold_value REAL,
+    status TEXT NOT NULL DEFAULT 'triggered' CHECK(status IN ('triggered', 'acknowledged', 'resolved')),
+    triggered_at DATETIME NOT NULL,
+    acknowledged_at DATETIME,
+    resolved_at DATETIME,
+    acknowledged_by TEXT, -- 用户ID
+    details TEXT, -- 详细信息(JSON)
+    FOREIGN KEY (rule_id) REFERENCES node_alert_rules(id) ON DELETE CASCADE,
+    FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE,
+    FOREIGN KEY (acknowledged_by) REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_alert_history_node_id ON node_alert_history(node_id);
+CREATE INDEX IF NOT EXISTS idx_alert_history_status ON node_alert_history(status);
+CREATE INDEX IF NOT EXISTS idx_alert_history_triggered ON node_alert_history(triggered_at DESC);
+
 -- 插入默认套餐
 INSERT OR IGNORE INTO plans (id, name, max_rules, max_traffic, max_bandwidth, max_connections, billing_cycle, price, description)
 VALUES ('free-plan', '免费套餐', 3, 10737418240, 1048576, 10, 'monthly', 0, '免费用户套餐：3个规则，10GB流量/月，1Mbps带宽');
 
 INSERT OR IGNORE INTO plans (id, name, max_rules, max_traffic, max_bandwidth, max_connections, billing_cycle, price, description)
 VALUES ('unlimited-plan', '无限套餐', 0, 0, 0, 0, 'permanent', 0, '管理员无限套餐');
+
+-- 插入默认监控告警规则
+INSERT OR IGNORE INTO node_alert_rules (id, node_id, rule_name, metric_type, operator, threshold_value, severity, notification_channels)
+VALUES ('global-cpu-warning', NULL, 'CPU使用率告警', 'cpu', '>', 80.0, 'warning', '["system"]');
+
+INSERT OR IGNORE INTO node_alert_rules (id, node_id, rule_name, metric_type, operator, threshold_value, severity, notification_channels)
+VALUES ('global-memory-warning', NULL, '内存使用率告警', 'memory', '>', 80.0, 'warning', '["system"]');
+
+INSERT OR IGNORE INTO node_alert_rules (id, node_id, rule_name, metric_type, operator, threshold_value, severity, notification_channels)
+VALUES ('global-disk-critical', NULL, '磁盘使用率告警', 'disk', '>', 90.0, 'critical', '["system"]');
+
+INSERT OR IGNORE INTO node_alert_rules (id, node_id, rule_name, metric_type, operator, threshold_value, severity, notification_channels)
+VALUES ('global-response-warning', NULL, '响应时间告警', 'response_time', '>', 1000.0, 'warning', '["system"]');
 `
 )
 

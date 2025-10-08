@@ -1,6 +1,7 @@
 package core
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net"
 	"sync"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"gkipass/client/logger"
+	"gkipass/client/protocol"
 	"gkipass/client/ws"
 
 	"go.uber.org/zap"
@@ -15,13 +17,15 @@ import (
 
 // TunnelManager 隧道管理器
 type TunnelManager struct {
-	rules       map[string]*ws.TunnelRule // tunnelID -> rule
-	listeners   map[int]net.Listener      // port -> listener
-	nodeType    string                    // entry/exit
-	stats       map[string]*TunnelStats   // tunnelID -> stats
-	mu          sync.RWMutex
-	stopChan    chan struct{}
-	connections atomic.Int64 // 总连接数
+	rules           map[string]*ws.TunnelRule      // tunnelID -> rule
+	listeners       map[int]net.Listener           // port -> listener
+	nodeType        string                         // entry/exit
+	stats           map[string]*TunnelStats        // tunnelID -> stats
+	protocolHandler *protocol.MultiProtocolHandler // 多协议处理器
+	tlsConfig       *tls.Config                    // TLS配置
+	mu              sync.RWMutex
+	stopChan        chan struct{}
+	connections     atomic.Int64 // 总连接数
 }
 
 // TunnelStats 隧道统计
@@ -34,13 +38,34 @@ type TunnelStats struct {
 
 // NewTunnelManager 创建隧道管理器
 func NewTunnelManager(nodeType string) *TunnelManager {
-	return &TunnelManager{
+	tm := &TunnelManager{
 		rules:     make(map[string]*ws.TunnelRule),
 		listeners: make(map[int]net.Listener),
 		nodeType:  nodeType,
 		stats:     make(map[string]*TunnelStats),
 		stopChan:  make(chan struct{}),
 	}
+
+	// 初始化多协议处理器
+	tm.protocolHandler = protocol.NewMultiProtocolHandler(nodeType, tm.tlsConfig)
+
+	return tm
+}
+
+// SetTLSConfig 设置TLS配置
+func (tm *TunnelManager) SetTLSConfig(tlsConfig *tls.Config) {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+
+	tm.tlsConfig = tlsConfig
+
+	// 重新创建协议处理器以使用新的TLS配置
+	if tm.protocolHandler != nil {
+		tm.protocolHandler.Stop()
+	}
+	tm.protocolHandler = protocol.NewMultiProtocolHandler(tm.nodeType, tlsConfig)
+
+	logger.Info("TLS配置已更新")
 }
 
 // ApplyRules 应用隧道规则
@@ -111,14 +136,10 @@ func (tm *TunnelManager) startTunnelLocked(rule *ws.TunnelRule) error {
 
 	// 仅Entry节点需要监听端口
 	if tm.nodeType == "entry" {
-		addr := fmt.Sprintf(":%d", rule.LocalPort)
-		listener, err := net.Listen("tcp", addr)
-		if err != nil {
-			return fmt.Errorf("绑定端口失败: %w", err)
+		// 使用多协议处理器启动监听
+		if err := tm.protocolHandler.StartTunnelListener(rule); err != nil {
+			return fmt.Errorf("启动%s监听器失败: %w", rule.Protocol, err)
 		}
-
-		tm.listeners[rule.LocalPort] = listener
-		go tm.acceptConnections(listener, rule)
 	}
 
 	// 保存规则和初始化统计
@@ -142,7 +163,15 @@ func (tm *TunnelManager) stopTunnelLocked(tunnelID string) error {
 		return nil
 	}
 
-	// 关闭监听器
+	// 仅Entry节点需要停止监听器
+	if tm.nodeType == "entry" {
+		// 使用多协议处理器停止监听
+		if err := tm.protocolHandler.StopTunnelListener(rule); err != nil {
+			logger.Error("停止协议监听器失败", zap.Error(err))
+		}
+	}
+
+	// 传统监听器兼容处理
 	if listener, ok := tm.listeners[rule.LocalPort]; ok {
 		listener.Close()
 		delete(tm.listeners, rule.LocalPort)
@@ -419,7 +448,12 @@ func (tm *TunnelManager) Stop() {
 
 	logger.Info("停止所有隧道")
 
-	// 关闭所有监听器
+	// 停止多协议处理器
+	if tm.protocolHandler != nil {
+		tm.protocolHandler.Stop()
+	}
+
+	// 关闭所有传统监听器（兼容处理）
 	for port, listener := range tm.listeners {
 		listener.Close()
 		delete(tm.listeners, port)

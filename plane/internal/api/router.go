@@ -1,6 +1,9 @@
 package api
 
 import (
+	"gkipass/plane/internal/api/handler"
+	"gkipass/plane/internal/api/handler/node"
+	"gkipass/plane/internal/api/handler/user"
 	"gkipass/plane/internal/api/middleware"
 	"gkipass/plane/internal/ws"
 
@@ -44,20 +47,20 @@ func SetupRouter(app *App, wsServer *ws.Server) *gin.Engine {
 	// API v1
 	v1 := router.Group("/api/v1")
 	{
-		captchaHandler := NewCaptchaHandler(app)
+		captchaHandler := handler.NewCaptchaHandler(app)
 		v1.GET("/captcha/config", captchaHandler.GetCaptchaConfig)
 		v1.GET("/captcha/image", captchaHandler.GenerateImageCaptcha)
 
 		// 公开公告
-		announcementHandler := NewAnnouncementHandler(app)
+		announcementHandler := handler.NewAnnouncementHandler(app)
 		v1.GET("/announcements", announcementHandler.ListActiveAnnouncements)
 		v1.GET("/announcements/:id", announcementHandler.GetAnnouncement)
 
 		// 认证路由（无需JWT）
 		auth := v1.Group("/auth")
 		{
-			authHandler := NewAuthHandler(app)
-			userHandler := NewUserHandler(app)
+			authHandler := handler.NewAuthHandler(app)
+			userHandler := user.NewUserHandler(app)
 
 			auth.POST("/register", userHandler.Register)
 			auth.POST("/login", authHandler.Login)
@@ -65,7 +68,7 @@ func SetupRouter(app *App, wsServer *ws.Server) *gin.Engine {
 
 			// GitHub OAuth
 			if app.Config.Auth.GitHub.Enabled {
-				oauthHandler := NewOAuthHandler(app)
+				oauthHandler := handler.NewOAuthHandler(app)
 				auth.GET("/github", oauthHandler.GitHubLoginURL)
 				auth.POST("/github/callback", oauthHandler.GitHubCallback)
 			}
@@ -78,8 +81,10 @@ func SetupRouter(app *App, wsServer *ws.Server) *gin.Engine {
 			// 用户管理
 			users := authorized.Group("/users")
 			{
-				userHandler := NewUserHandler(app)
-				users.GET("/profile", userHandler.GetProfile)
+				userHandler := user.NewUserHandler(app)
+				users.GET("/me", userHandler.GetCurrentUser)              // 获取当前用户完整信息
+				users.GET("/permissions", userHandler.GetUserPermissions) // 获取用户权限详情
+				users.GET("/profile", userHandler.GetProfile)             // 获取基本信息（保留兼容）
 				users.PUT("/password", userHandler.UpdatePassword)
 
 				// 管理员功能
@@ -92,8 +97,8 @@ func SetupRouter(app *App, wsServer *ws.Server) *gin.Engine {
 			// 节点组管理
 			groups := authorized.Group("/node-groups")
 			{
-				groupHandler := NewNodeGroupHandler(app)
-				configHandler := NewNodeGroupConfigHandler(app)
+				groupHandler := node.NewNodeGroupHandler(app)
+				configHandler := node.NewNodeGroupConfigHandler(app)
 
 				groups.POST("", groupHandler.Create)
 				groups.GET("", groupHandler.List)
@@ -110,10 +115,10 @@ func SetupRouter(app *App, wsServer *ws.Server) *gin.Engine {
 			// 节点管理
 			nodes := authorized.Group("/nodes")
 			{
-				nodeHandler := NewNodeHandler(app)
-				ckHandler := NewCKHandler(app)
-				statusHandler := NewNodeStatusHandler(app)
-				certHandler := NewNodeCertHandler(app)
+				nodeHandler := node.NewNodeHandler(app)
+				ckHandler := handler.NewCKHandler(app)
+				statusHandler := node.NewNodeStatusHandler(app)
+				certHandler := node.NewNodeCertHandler(app)
 
 				// 用户可用节点（根据套餐过滤）
 				nodes.GET("/available", nodeHandler.GetAvailableNodes)
@@ -143,7 +148,7 @@ func SetupRouter(app *App, wsServer *ws.Server) *gin.Engine {
 			}
 
 			// 节点部署 API
-			deployHandler := NewNodeDeployHandler(app)
+			deployHandler := node.NewNodeDeployHandler(app)
 
 			// 节点组内创建节点
 			groups.POST("/:id/nodes", deployHandler.CreateNode)
@@ -156,7 +161,7 @@ func SetupRouter(app *App, wsServer *ws.Server) *gin.Engine {
 			// 策略管理
 			policies := authorized.Group("/policies")
 			{
-				policyHandler := NewPolicyHandler(app)
+				policyHandler := handler.NewPolicyHandler(app)
 				policies.POST("", policyHandler.Create)
 				policies.GET("", policyHandler.List)
 				policies.GET("/:id", policyHandler.Get)
@@ -168,7 +173,7 @@ func SetupRouter(app *App, wsServer *ws.Server) *gin.Engine {
 			// 证书管理
 			certs := authorized.Group("/certificates")
 			{
-				certHandler := NewCertificateHandler(app)
+				certHandler := handler.NewCertificateHandler(app)
 				certs.POST("/ca", certHandler.GenerateCA)
 				certs.POST("/leaf", certHandler.GenerateLeaf)
 				certs.GET("", certHandler.List)
@@ -180,7 +185,7 @@ func SetupRouter(app *App, wsServer *ws.Server) *gin.Engine {
 			// 套餐管理
 			plans := authorized.Group("/plans")
 			{
-				planHandler := NewPlanHandler(app)
+				planHandler := handler.NewPlanHandler(app)
 				plans.GET("", planHandler.List)
 				plans.GET("/:id", planHandler.Get)
 				plans.GET("/:id/subscribe", middleware.QuotaCheck(app.DB), planHandler.Subscribe)
@@ -200,7 +205,7 @@ func SetupRouter(app *App, wsServer *ws.Server) *gin.Engine {
 			tunnels := authorized.Group("/tunnels")
 			tunnels.Use(middleware.QuotaCheck(app.DB))
 			{
-				tunnelHandler := NewTunnelHandler(app)
+				tunnelHandler := handler.NewTunnelHandler(app)
 				tunnels.GET("", tunnelHandler.List)
 				tunnels.GET("/:id", tunnelHandler.Get)
 				tunnels.POST("", middleware.RuleQuotaCheck(app.DB), tunnelHandler.Create)
@@ -212,7 +217,7 @@ func SetupRouter(app *App, wsServer *ws.Server) *gin.Engine {
 			// 统计和监控
 			stats := authorized.Group("/statistics")
 			{
-				statsHandler := NewStatisticsHandler(app)
+				statsHandler := user.NewStatisticsHandler(app)
 				stats.GET("/nodes/:id", statsHandler.GetNodeStats)
 				stats.GET("/overview", statsHandler.GetOverview)
 				stats.POST("/report", statsHandler.ReportStats)
@@ -221,24 +226,44 @@ func SetupRouter(app *App, wsServer *ws.Server) *gin.Engine {
 			// 流量统计
 			traffic := authorized.Group("/traffic")
 			{
-				trafficHandler := NewTrafficStatsHandler(app)
+				trafficHandler := handler.NewTrafficStatsHandler(app)
 				traffic.GET("/stats", trafficHandler.ListTrafficStats)
 				traffic.GET("/summary", trafficHandler.GetTrafficSummary)
 				traffic.POST("/report", trafficHandler.ReportTraffic) // 节点上报流量
 			}
 
+			// 节点监控
+			monitoring := authorized.Group("/monitoring")
+			{
+				monitoringHandler := handler.NewMonitoringHandler(app)
+				monitoring.GET("/overview", monitoringHandler.ListNodeMonitoringOverview)
+				monitoring.GET("/summary", monitoringHandler.NodeMonitoringSummary)
+				monitoring.GET("/nodes/:id/status", monitoringHandler.GetNodeMonitoringStatus)
+				monitoring.GET("/nodes/:id/data", monitoringHandler.GetNodeMonitoringData)
+				monitoring.GET("/nodes/:id/history", monitoringHandler.GetNodePerformanceHistory)
+				monitoring.GET("/nodes/:id/config", monitoringHandler.GetNodeMonitoringConfig)
+				monitoring.PUT("/nodes/:id/config", middleware.AdminAuth(), monitoringHandler.UpdateNodeMonitoringConfig)
+				monitoring.GET("/nodes/:id/alerts", monitoringHandler.GetNodeAlerts)
+				monitoring.GET("/permissions", middleware.AdminAuth(), monitoringHandler.ListMonitoringPermissions)
+				monitoring.POST("/permissions", middleware.AdminAuth(), monitoringHandler.CreateMonitoringPermission)
+				monitoring.GET("/my-permissions", monitoringHandler.GetMyMonitoringPermissions)
+			}
+
+			// 节点数据上报API（公开API，供节点调用）
+			v1.POST("/monitoring/report/:node_id", handler.NewMonitoringHandler(app).ReportNodeMonitoringData)
+
 			// 管理员专用统计
 			adminStats := authorized.Group("/admin/statistics")
 			adminStats.Use(middleware.AdminAuth())
 			{
-				statsHandler := NewStatisticsHandler(app)
+				statsHandler := user.NewStatisticsHandler(app)
 				adminStats.GET("/overview", statsHandler.GetAdminOverview)
 			}
 
 			// 钱包管理
 			wallet := authorized.Group("/wallet")
 			{
-				walletHandler := NewWalletHandler(app)
+				walletHandler := user.NewWalletHandler(app)
 				wallet.GET("/balance", walletHandler.GetBalance)
 				wallet.GET("/transactions", walletHandler.ListTransactions)
 				wallet.POST("/recharge", walletHandler.Recharge) // 旧版保留兼容
@@ -247,7 +272,7 @@ func SetupRouter(app *App, wsServer *ws.Server) *gin.Engine {
 			// 支付管理
 			payment := authorized.Group("/payment")
 			{
-				paymentHandler := NewPaymentHandler(app)
+				paymentHandler := user.NewPaymentHandler(app)
 				payment.POST("/recharge", paymentHandler.CreateRechargeOrder)
 				payment.GET("/orders/:id", paymentHandler.QueryOrderStatus)
 			}
@@ -255,13 +280,13 @@ func SetupRouter(app *App, wsServer *ws.Server) *gin.Engine {
 			// 订阅管理
 			subscriptions := authorized.Group("/subscriptions")
 			{
-				subscriptionHandler := NewSubscriptionHandler(app)
+				subscriptionHandler := user.NewSubscriptionHandler(app)
 				subscriptions.GET("/current", subscriptionHandler.GetCurrentSubscription)
 				subscriptions.GET("", middleware.AdminAuth(), subscriptionHandler.ListSubscriptions)
 			}
 
 			// 通知管理
-			notificationHandler := NewNotificationHandler(app)
+			notificationHandler := handler.NewNotificationHandler(app)
 			notifications := authorized.Group("/notifications")
 			{
 				notifications.GET("", notificationHandler.List)
@@ -275,8 +300,8 @@ func SetupRouter(app *App, wsServer *ws.Server) *gin.Engine {
 			admin.Use(middleware.AdminAuth())
 			{
 				// 支付配置管理
-				paymentConfigHandler := NewPaymentConfigHandler(app)
-				paymentHandler := NewPaymentHandler(app)
+				paymentConfigHandler := handler.NewPaymentConfigHandler(app)
+				paymentHandler := user.NewPaymentHandler(app)
 				admin.GET("/payment/configs", paymentConfigHandler.ListConfigs)
 				admin.GET("/payment/config/:id", paymentConfigHandler.GetConfig)
 				admin.PUT("/payment/config/:id", paymentConfigHandler.UpdateConfig)
@@ -284,9 +309,15 @@ func SetupRouter(app *App, wsServer *ws.Server) *gin.Engine {
 				admin.POST("/payment/manual-recharge", paymentHandler.ManualRecharge)
 
 				// 系统设置
-				settingsHandler := NewSettingsHandler(app)
+				settingsHandler := handler.NewSettingsHandler(app)
 				admin.GET("/settings/captcha", settingsHandler.GetCaptchaSettings)
 				admin.PUT("/settings/captcha", settingsHandler.UpdateCaptchaSettings)
+				admin.GET("/settings/general", settingsHandler.GetGeneralSettings)
+				admin.PUT("/settings/general", settingsHandler.UpdateGeneralSettings)
+				admin.GET("/settings/security", settingsHandler.GetSecuritySettings)
+				admin.PUT("/settings/security", settingsHandler.UpdateSecuritySettings)
+				admin.GET("/settings/notification", settingsHandler.GetNotificationSettings)
+				admin.PUT("/settings/notification", settingsHandler.UpdateNotificationSettings)
 
 				// 公告管理
 				admin.GET("/announcements", announcementHandler.ListAll)

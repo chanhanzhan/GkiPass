@@ -146,6 +146,13 @@ func (s *SQLiteDB) UpdateUserStatus(userID string, enabled bool) error {
 	return err
 }
 
+// UpdateUserRole 更新用户角色
+func (s *SQLiteDB) UpdateUserRole(userID string, role string) error {
+	query := `UPDATE users SET role = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
+	_, err := s.db.Exec(query, role, userID)
+	return err
+}
+
 // ListUsers 列出用户
 func (s *SQLiteDB) ListUsers(role string, enabled *bool) ([]*dbinit.User, error) {
 	query := `

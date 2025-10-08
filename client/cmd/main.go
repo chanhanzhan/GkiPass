@@ -14,6 +14,7 @@ import (
 	"gkipass/client/core"
 	"gkipass/client/logger"
 	"gkipass/client/metrics"
+	"gkipass/client/tls"
 	"gkipass/client/ws"
 
 	"go.uber.org/zap"
@@ -63,17 +64,52 @@ func main() {
 		zap.String("server", *server),
 		zap.Bool("tls", *enableTLS))
 
+	// 创建自动证书管理器
+	certManager := tls.NewAutoCertManager(cfg.Node.ID, *server, *token, "./certs")
+	if err := certManager.Start(); err != nil {
+		logger.Error("启动证书管理器失败", zap.Error(err))
+		// 不退出程序，继续运行
+	}
+
 	// 创建隧道管理器
 	tunnelManager := core.NewTunnelManager(cfg.Node.Type)
+
+	// 如果有有效证书，配置TLS
+	if certManager.HasValidCertificate() {
+		tlsConfig := certManager.GetTLSConfig()
+		tunnelManager.SetTLSConfig(tlsConfig)
+		logger.Info("TLS配置已应用")
+	} else if *enableTLS {
+		logger.Warn("TLS已启用但无有效证书，将尝试自动获取")
+	}
 
 	// 创建WebSocket客户端
 	wsClient := ws.NewClient(&cfg.Plane)
 
-	// 创建指标收集器
+	// 创建增强版系统监控器
+	systemMonitor := metrics.NewEnhancedSystemMonitor(version)
+	if err := systemMonitor.Start(); err != nil {
+		logger.Error("启动系统监控器失败", zap.Error(err))
+	}
+
+	// 创建监控数据上报器
+	monitoringReporter := metrics.NewMonitoringReporter(
+		cfg.Node.ID,
+		*server,
+		*token,
+		systemMonitor,
+		tunnelManager,
+		wsClient,
+	)
+
+	// 创建指标收集器（保持兼容性）
 	collector := metrics.NewCollector(cfg.Node.ID, wsClient, tunnelManager)
 
 	// 创建消息处理器
 	handler := ws.NewHandler(wsClient, tunnelManager)
+
+	// 设置监控上报器到处理器
+	handler.SetMonitoringReporter(monitoringReporter)
 
 	// 设置消息回调
 	wsClient.SetOnMessage(func(msg *ws.Message) {
@@ -142,6 +178,11 @@ func main() {
 	// 启动流量收集器
 	collector.Start()
 
+	// 启动监控数据上报器
+	if err := monitoringReporter.Start(); err != nil {
+		logger.Error("启动监控上报器失败", zap.Error(err))
+	}
+
 	// 启动心跳
 	go startHeartbeat(wsClient, cfg, collector)
 
@@ -156,6 +197,15 @@ func main() {
 	<-sigChan
 
 	logger.Info("收到停止信号，开始优雅关闭...")
+
+	// 停止证书管理器
+	certManager.Stop()
+
+	// 停止监控上报器
+	monitoringReporter.Stop()
+
+	// 停止系统监控器
+	systemMonitor.Stop()
 
 	// 停止收集器
 	collector.Stop()
@@ -188,14 +238,28 @@ func registerNode(wsClient *ws.Client, cfg *config.Config) error {
 		Port:     8080, // SOCKS5监听端口
 		CK:       cfg.Plane.CK,
 		Capabilities: map[string]bool{
-			"tcp":           true,
-			"udp":           true,
-			"http":          true,
-			"tls":           true,
-			"socks":         true,
-			"load_balance":  true,
-			"health_check":  true,
-			"traffic_stats": true,
+			// 基础协议
+			"tcp":   true,
+			"udp":   true,
+			"http":  true,
+			"https": true,
+			"tls":   *enableTLS,
+			"socks": true,
+			// WebSocket协议
+			"ws":  true,
+			"wss": *enableTLS,
+			// 现代协议
+			"quic":  *enableTLS,
+			"http3": *enableTLS,
+			// 功能特性
+			"load_balance":      true,
+			"health_check":      true,
+			"traffic_stats":     true,
+			"auto_cert":         true,
+			"multi_protocol":    true,
+			"tls_multiplexing":  *enableTLS,
+			"monitoring":        true,
+			"performance_stats": true,
 		},
 	}
 

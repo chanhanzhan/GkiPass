@@ -309,3 +309,151 @@ type CaptchaSession struct {
 	CreatedAt time.Time `json:"created_at"` // 创建时间
 	ExpiresAt time.Time `json:"expires_at"` // 过期时间
 }
+
+// NodeMonitoringConfig 节点监控配置
+type NodeMonitoringConfig struct {
+	ID                   string    `json:"id" db:"id"`
+	NodeID               string    `json:"node_id" db:"node_id"`
+	MonitoringEnabled    bool      `json:"monitoring_enabled" db:"monitoring_enabled"`
+	ReportInterval       int       `json:"report_interval" db:"report_interval"`
+	CollectSystemInfo    bool      `json:"collect_system_info" db:"collect_system_info"`
+	CollectNetworkStats  bool      `json:"collect_network_stats" db:"collect_network_stats"`
+	CollectTunnelStats   bool      `json:"collect_tunnel_stats" db:"collect_tunnel_stats"`
+	CollectPerformance   bool      `json:"collect_performance" db:"collect_performance"`
+	DataRetentionDays    int       `json:"data_retention_days" db:"data_retention_days"`
+	AlertCPUThreshold    float64   `json:"alert_cpu_threshold" db:"alert_cpu_threshold"`
+	AlertMemoryThreshold float64   `json:"alert_memory_threshold" db:"alert_memory_threshold"`
+	AlertDiskThreshold   float64   `json:"alert_disk_threshold" db:"alert_disk_threshold"`
+	CreatedAt            time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt            time.Time `json:"updated_at" db:"updated_at"`
+}
+
+// NodeMonitoringData 节点监控数据
+type NodeMonitoringData struct {
+	ID        string    `json:"id" db:"id"`
+	NodeID    string    `json:"node_id" db:"node_id"`
+	Timestamp time.Time `json:"timestamp" db:"timestamp"`
+	// 系统基础信息
+	SystemUptime int64        `json:"system_uptime" db:"system_uptime"`
+	BootTime     sql.NullTime `json:"boot_time" db:"boot_time"`
+	// CPU信息
+	CPUUsage   float64 `json:"cpu_usage" db:"cpu_usage"`
+	CPULoad1m  float64 `json:"cpu_load_1m" db:"cpu_load_1m"`
+	CPULoad5m  float64 `json:"cpu_load_5m" db:"cpu_load_5m"`
+	CPULoad15m float64 `json:"cpu_load_15m" db:"cpu_load_15m"`
+	CPUCores   int     `json:"cpu_cores" db:"cpu_cores"`
+	// 内存信息
+	MemoryTotal        int64   `json:"memory_total" db:"memory_total"`
+	MemoryUsed         int64   `json:"memory_used" db:"memory_used"`
+	MemoryAvailable    int64   `json:"memory_available" db:"memory_available"`
+	MemoryUsagePercent float64 `json:"memory_usage_percent" db:"memory_usage_percent"`
+	// 磁盘信息
+	DiskTotal        int64   `json:"disk_total" db:"disk_total"`
+	DiskUsed         int64   `json:"disk_used" db:"disk_used"`
+	DiskAvailable    int64   `json:"disk_available" db:"disk_available"`
+	DiskUsagePercent float64 `json:"disk_usage_percent" db:"disk_usage_percent"`
+	// 网络信息
+	NetworkInterfaces sql.NullString `json:"network_interfaces" db:"network_interfaces"`
+	BandwidthIn       int64          `json:"bandwidth_in" db:"bandwidth_in"`
+	BandwidthOut      int64          `json:"bandwidth_out" db:"bandwidth_out"`
+	// 连接信息
+	TCPConnections   int `json:"tcp_connections" db:"tcp_connections"`
+	UDPConnections   int `json:"udp_connections" db:"udp_connections"`
+	ActiveTunnels    int `json:"active_tunnels" db:"active_tunnels"`
+	TotalConnections int `json:"total_connections" db:"total_connections"`
+	// 流量统计
+	TrafficInBytes  int64 `json:"traffic_in_bytes" db:"traffic_in_bytes"`
+	TrafficOutBytes int64 `json:"traffic_out_bytes" db:"traffic_out_bytes"`
+	PacketsIn       int64 `json:"packets_in" db:"packets_in"`
+	PacketsOut      int64 `json:"packets_out" db:"packets_out"`
+	// 错误统计
+	ConnectionErrors int `json:"connection_errors" db:"connection_errors"`
+	TunnelErrors     int `json:"tunnel_errors" db:"tunnel_errors"`
+	// 性能指标
+	AvgResponseTime float64 `json:"avg_response_time" db:"avg_response_time"`
+	MaxResponseTime float64 `json:"max_response_time" db:"max_response_time"`
+	MinResponseTime float64 `json:"min_response_time" db:"min_response_time"`
+	// 应用级信息
+	AppVersion sql.NullString `json:"app_version" db:"app_version"`
+	GoVersion  sql.NullString `json:"go_version" db:"go_version"`
+	OSInfo     sql.NullString `json:"os_info" db:"os_info"`
+	// 配置信息
+	NodeConfigVersion sql.NullString `json:"node_config_version" db:"node_config_version"`
+	LastConfigUpdate  sql.NullTime   `json:"last_config_update" db:"last_config_update"`
+}
+
+// NodePerformanceHistory 节点性能历史数据
+type NodePerformanceHistory struct {
+	ID                  string    `json:"id" db:"id"`
+	NodeID              string    `json:"node_id" db:"node_id"`
+	Date                time.Time `json:"date" db:"date"`
+	AggregationType     string    `json:"aggregation_type" db:"aggregation_type"`
+	AggregationTime     time.Time `json:"aggregation_time" db:"aggregation_time"`
+	AvgCPUUsage         float64   `json:"avg_cpu_usage" db:"avg_cpu_usage"`
+	AvgMemoryUsage      float64   `json:"avg_memory_usage" db:"avg_memory_usage"`
+	AvgDiskUsage        float64   `json:"avg_disk_usage" db:"avg_disk_usage"`
+	AvgBandwidthIn      int64     `json:"avg_bandwidth_in" db:"avg_bandwidth_in"`
+	AvgBandwidthOut     int64     `json:"avg_bandwidth_out" db:"avg_bandwidth_out"`
+	AvgConnections      int       `json:"avg_connections" db:"avg_connections"`
+	AvgResponseTime     float64   `json:"avg_response_time" db:"avg_response_time"`
+	MaxCPUUsage         float64   `json:"max_cpu_usage" db:"max_cpu_usage"`
+	MaxMemoryUsage      float64   `json:"max_memory_usage" db:"max_memory_usage"`
+	MaxConnections      int       `json:"max_connections" db:"max_connections"`
+	MaxResponseTime     float64   `json:"max_response_time" db:"max_response_time"`
+	TotalTrafficIn      int64     `json:"total_traffic_in" db:"total_traffic_in"`
+	TotalTrafficOut     int64     `json:"total_traffic_out" db:"total_traffic_out"`
+	TotalPacketsIn      int64     `json:"total_packets_in" db:"total_packets_in"`
+	TotalPacketsOut     int64     `json:"total_packets_out" db:"total_packets_out"`
+	TotalErrors         int       `json:"total_errors" db:"total_errors"`
+	UptimeSeconds       int64     `json:"uptime_seconds" db:"uptime_seconds"`
+	DowntimeSeconds     int64     `json:"downtime_seconds" db:"downtime_seconds"`
+	AvailabilityPercent float64   `json:"availability_percent" db:"availability_percent"`
+	CreatedAt           time.Time `json:"created_at" db:"created_at"`
+}
+
+// MonitoringPermission 监控权限
+type MonitoringPermission struct {
+	ID             string    `json:"id" db:"id"`
+	UserID         string    `json:"user_id" db:"user_id"`
+	NodeID         string    `json:"node_id" db:"node_id"`
+	PermissionType string    `json:"permission_type" db:"permission_type"`
+	Enabled        bool      `json:"enabled" db:"enabled"`
+	CreatedBy      string    `json:"created_by" db:"created_by"`
+	CreatedAt      time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at" db:"updated_at"`
+	Description    string    `json:"description" db:"description"`
+}
+
+// NodeAlertRule 节点告警规则
+type NodeAlertRule struct {
+	ID                   string    `json:"id" db:"id"`
+	NodeID               string    `json:"node_id" db:"node_id"`
+	RuleName             string    `json:"rule_name" db:"rule_name"`
+	MetricType           string    `json:"metric_type" db:"metric_type"`
+	Operator             string    `json:"operator" db:"operator"`
+	ThresholdValue       float64   `json:"threshold_value" db:"threshold_value"`
+	DurationSeconds      int       `json:"duration_seconds" db:"duration_seconds"`
+	Severity             string    `json:"severity" db:"severity"`
+	Enabled              bool      `json:"enabled" db:"enabled"`
+	NotificationChannels string    `json:"notification_channels" db:"notification_channels"`
+	CreatedAt            time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt            time.Time `json:"updated_at" db:"updated_at"`
+}
+
+// NodeAlertHistory 节点告警历史
+type NodeAlertHistory struct {
+	ID             string          `json:"id" db:"id"`
+	RuleID         string          `json:"rule_id" db:"rule_id"`
+	NodeID         string          `json:"node_id" db:"node_id"`
+	AlertType      string          `json:"alert_type" db:"alert_type"`
+	Severity       string          `json:"severity" db:"severity"`
+	Message        string          `json:"message" db:"message"`
+	MetricValue    sql.NullFloat64 `json:"metric_value" db:"metric_value"`
+	ThresholdValue sql.NullFloat64 `json:"threshold_value" db:"threshold_value"`
+	Status         string          `json:"status" db:"status"`
+	TriggeredAt    time.Time       `json:"triggered_at" db:"triggered_at"`
+	AcknowledgedAt sql.NullTime    `json:"acknowledged_at" db:"acknowledged_at"`
+	ResolvedAt     sql.NullTime    `json:"resolved_at" db:"resolved_at"`
+	AcknowledgedBy sql.NullString  `json:"acknowledged_by" db:"acknowledged_by"`
+	Details        sql.NullString  `json:"details" db:"details"`
+}

@@ -2,6 +2,7 @@ package ws
 
 import (
 	"fmt"
+	"time"
 
 	"gkipass/client/logger"
 
@@ -10,14 +11,20 @@ import (
 
 // Handler WebSocket消息处理器
 type Handler struct {
-	client        *Client
-	tunnelManager TunnelManager
+	client             *Client
+	tunnelManager      TunnelManager
+	monitoringReporter MonitoringReporter // 监控上报器接口
 }
 
 // TunnelManager 隧道管理器接口
 type TunnelManager interface {
 	ApplyRules(rules []TunnelRule) error
 	RemoveRule(tunnelID string) error
+}
+
+// MonitoringReporter 监控上报器接口
+type MonitoringReporter interface {
+	SetReportInterval(interval time.Duration)
 }
 
 // NewHandler 创建处理器
@@ -47,6 +54,10 @@ func (h *Handler) HandleMessage(msg *Message) error {
 		return h.handlePong(msg)
 	case MsgTypeError:
 		return h.handleError(msg)
+	case MsgTypeMonitorConfig:
+		return h.handleMonitoringConfig(msg)
+	case MsgTypeConfigUpdate:
+		return h.handleConfigUpdate(msg)
 	default:
 		logger.Warn("未知消息类型", zap.String("type", string(msg.Type)))
 		return nil
@@ -156,4 +167,42 @@ func (h *Handler) handleError(msg *Message) error {
 		zap.String("details", errMsg.Details))
 
 	return nil
+}
+
+// handleMonitoringConfig 处理监控配置更新
+func (h *Handler) handleMonitoringConfig(msg *Message) error {
+	var config MonitoringConfigUpdate
+	if err := msg.ParseData(&config); err != nil {
+		return fmt.Errorf("解析监控配置失败: %w", err)
+	}
+
+	logger.Info("收到监控配置更新",
+		zap.String("nodeID", config.NodeID),
+		zap.Bool("enabled", config.MonitoringEnabled),
+		zap.Int("interval", config.ReportInterval))
+
+	// 更新监控上报间隔
+	if h.monitoringReporter != nil && config.MonitoringEnabled {
+		h.monitoringReporter.SetReportInterval(time.Duration(config.ReportInterval) * time.Second)
+		logger.Info("监控上报间隔已更新", zap.Int("seconds", config.ReportInterval))
+	}
+
+	return nil
+}
+
+// handleConfigUpdate 处理配置更新
+func (h *Handler) handleConfigUpdate(msg *Message) error {
+	logger.Info("收到配置更新通知")
+
+	// TODO: 根据配置更新类型执行相应操作
+	// 1. 重新加载隧道配置
+	// 2. 更新监控配置
+	// 3. 更新TLS配置等
+
+	return nil
+}
+
+// SetMonitoringReporter 设置监控上报器
+func (h *Handler) SetMonitoringReporter(reporter MonitoringReporter) {
+	h.monitoringReporter = reporter
 }

@@ -10,6 +10,7 @@ import (
 	"gkipass/plane/internal/service"
 	"gkipass/plane/pkg/logger"
 
+	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
 )
@@ -172,6 +173,9 @@ func (h *Handler) handleMessage(conn *NodeConnection, msg *Message) {
 	case MsgTypeNodeStatus:
 		h.handleNodeStatus(conn, msg)
 
+	case MsgTypeMonitoringReport:
+		h.handleMonitoringReport(conn, msg)
+
 	case MsgTypePong:
 		// Pong 消息已在 readPump 中处理
 
@@ -236,6 +240,135 @@ func (h *Handler) handleTrafficReport(conn *NodeConnection, msg *Message) {
 
 // handleNodeStatus 处理节点状态
 func (h *Handler) handleNodeStatus(conn *NodeConnection, msg *Message) {
+}
+
+// handleMonitoringReport 处理监控数据上报
+func (h *Handler) handleMonitoringReport(conn *NodeConnection, msg *Message) {
+	var req MonitoringReportRequest
+	if err := msg.ParseData(&req); err != nil {
+		logger.Error("解析监控数据失败", zap.Error(err))
+		return
+	}
+
+	logger.Debug("收到监控数据",
+		zap.String("nodeID", req.NodeID),
+		zap.Float64("cpuUsage", req.SystemInfo.CPUUsage),
+		zap.Float64("memUsage", req.SystemInfo.MemoryUsagePercent),
+		zap.Int("tunnels", req.TunnelStats.ActiveTunnels))
+
+	// 创建监控服务实例（如果不存在）
+	monitoringService := service.NewNodeMonitoringService(h.db)
+
+	// 转换数据结构
+	reportData := &service.NodeMonitoringReportData{
+		SystemInfo: service.SystemInfo{
+			Uptime:             req.SystemInfo.Uptime,
+			BootTime:           req.SystemInfo.BootTime,
+			CPUUsage:           req.SystemInfo.CPUUsage,
+			CPULoad1m:          req.SystemInfo.CPULoad1m,
+			CPULoad5m:          req.SystemInfo.CPULoad5m,
+			CPULoad15m:         req.SystemInfo.CPULoad15m,
+			CPUCores:           req.SystemInfo.CPUCores,
+			MemoryTotal:        req.SystemInfo.MemoryTotal,
+			MemoryUsed:         req.SystemInfo.MemoryUsed,
+			MemoryAvailable:    req.SystemInfo.MemoryAvailable,
+			MemoryUsagePercent: req.SystemInfo.MemoryUsagePercent,
+			DiskTotal:          req.SystemInfo.DiskTotal,
+			DiskUsed:           req.SystemInfo.DiskUsed,
+			DiskAvailable:      req.SystemInfo.DiskAvailable,
+			DiskUsagePercent:   req.SystemInfo.DiskUsagePercent,
+		},
+		NetworkStats: service.NetworkStats{
+			Interfaces:       convertNetworkInterfaces(req.NetworkStats.Interfaces),
+			BandwidthIn:      req.NetworkStats.BandwidthIn,
+			BandwidthOut:     req.NetworkStats.BandwidthOut,
+			TCPConnections:   req.NetworkStats.TCPConnections,
+			UDPConnections:   req.NetworkStats.UDPConnections,
+			TotalConnections: req.NetworkStats.TotalConnections,
+			TrafficInBytes:   req.NetworkStats.TrafficInBytes,
+			TrafficOutBytes:  req.NetworkStats.TrafficOutBytes,
+			PacketsIn:        req.NetworkStats.PacketsIn,
+			PacketsOut:       req.NetworkStats.PacketsOut,
+			ConnectionErrors: req.NetworkStats.ConnectionErrors,
+		},
+		TunnelStats: service.TunnelStats{
+			ActiveTunnels: req.TunnelStats.ActiveTunnels,
+			TunnelErrors:  req.TunnelStats.TunnelErrors,
+			TunnelList:    convertTunnelStatusList(req.TunnelStats.TunnelList),
+		},
+		Performance: service.Performance{
+			AvgResponseTime: req.Performance.AvgResponseTime,
+			MaxResponseTime: req.Performance.MaxResponseTime,
+			MinResponseTime: req.Performance.MinResponseTime,
+			RequestsPerSec:  req.Performance.RequestsPerSec,
+			ErrorRate:       req.Performance.ErrorRate,
+		},
+		AppInfo: service.AppInfo{
+			Version:      req.AppInfo.Version,
+			GoVersion:    req.AppInfo.GoVersion,
+			OSInfo:       req.AppInfo.OSInfo,
+			Architecture: req.AppInfo.Architecture,
+			StartTime:    req.AppInfo.StartTime,
+		},
+		ConfigVersion: req.ConfigVersion,
+	}
+
+	// 处理监控数据
+	if err := monitoringService.ReportMonitoringData(req.NodeID, reportData); err != nil {
+		logger.Error("处理监控数据失败",
+			zap.String("nodeID", req.NodeID),
+			zap.Error(err))
+		return
+	}
+
+	// 发送确认响应
+	resp := gin.H{
+		"success":   true,
+		"timestamp": time.Now(),
+		"message":   "监控数据已接收",
+	}
+
+	respMsg, _ := NewMessage("monitoring_ack", resp)
+	conn.Send <- respMsg
+}
+
+// convertNetworkInterfaces 转换网络接口数据结构
+func convertNetworkInterfaces(interfaces []NetworkInterface) []service.NetworkInterface {
+	result := make([]service.NetworkInterface, len(interfaces))
+	for i, iface := range interfaces {
+		result[i] = service.NetworkInterface{
+			Name:      iface.Name,
+			IP:        iface.IP,
+			MAC:       iface.MAC,
+			Status:    iface.Status,
+			Speed:     iface.Speed,
+			RxBytes:   iface.RxBytes,
+			TxBytes:   iface.TxBytes,
+			RxPackets: iface.RxPackets,
+			TxPackets: iface.TxPackets,
+		}
+	}
+	return result
+}
+
+// convertTunnelStatusList 转换隧道状态列表
+func convertTunnelStatusList(tunnels []TunnelStatusInfo) []service.TunnelStatusInfo {
+	result := make([]service.TunnelStatusInfo, len(tunnels))
+	for i, tunnel := range tunnels {
+		result[i] = service.TunnelStatusInfo{
+			TunnelID:        tunnel.TunnelID,
+			Name:            tunnel.Name,
+			Protocol:        tunnel.Protocol,
+			LocalPort:       tunnel.LocalPort,
+			Status:          tunnel.Status,
+			Connections:     tunnel.Connections,
+			TrafficIn:       tunnel.TrafficIn,
+			TrafficOut:      tunnel.TrafficOut,
+			AvgResponseTime: tunnel.AvgResponseTime,
+			ErrorCount:      tunnel.ErrorCount,
+		}
+	}
+	return result
 }
 
 // syncRulesToNode 同步规则到节点
@@ -406,12 +539,12 @@ func (h *Handler) NotifyRuleChange(groupID, nodeType string, tunnel *dbinit.Tunn
 
 	// 获取该组的所有在线节点
 	nodeIDs := h.getOnlineNodesInGroup(groupID)
-	
+
 	// 通知组内所有节点
 	for _, nodeID := range nodeIDs {
 		go h.sendFullNodeConfig(nodeID)
 	}
-	
+
 	logger.Info("规则变更已通知",
 		zap.String("groupID", groupID),
 		zap.Int("nodeCount", len(nodeIDs)))
@@ -422,18 +555,18 @@ func (h *Handler) getOnlineNodesInGroup(groupID string) []string {
 	// 从在线连接中筛选
 	allNodeIDs := h.manager.GetAllNodeIDs()
 	groupNodeIDs := make([]string, 0)
-	
+
 	for _, nodeID := range allNodeIDs {
 		node, err := h.db.DB.SQLite.GetNode(nodeID)
 		if err != nil || node == nil {
 			continue
 		}
-		
+
 		if node.GroupID == groupID {
 			groupNodeIDs = append(groupNodeIDs, nodeID)
 		}
 	}
-	
+
 	return groupNodeIDs
 }
 

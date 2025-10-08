@@ -23,13 +23,13 @@ deps:
 # 编译控制面板
 plane-build:
 	@echo "🔨 编译控制面板..."
-	go build -ldflags="-s -w" -o bin/gkipass-plane plane/cmd/main.go
+	go build -ldflags="-s -w" -o bin/gkipass-plane ./plane/cmd
 	@echo "✓ 编译完成: bin/gkipass-plane"
 
 # 运行控制面板
 plane-run:
 	@echo "🚀 启动控制面板..."
-	go run plane/cmd/main.go
+	go run ./plane/cmd
 
 # 编译所有组件
 build: deps plane-build

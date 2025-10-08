@@ -130,3 +130,7 @@ func (e *E2EEManager) decryptChaCha20(ciphertext []byte) ([]byte, error) {
 	return plaintext, nil
 }
 
+
+
+
+
