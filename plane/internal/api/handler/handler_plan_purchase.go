@@ -23,7 +23,7 @@ type PurchasePlanRequest struct {
 func (h *PlanHandler) PurchasePlan(c *gin.Context) {
 	var req PurchasePlanRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.GinBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
@@ -32,7 +32,7 @@ func (h *PlanHandler) PurchasePlan(c *gin.Context) {
 	// 获取套餐信息
 	plan, err := h.app.DB.DB.SQLite.GetPlan(req.PlanID)
 	if err != nil || plan == nil {
-		response.NotFound(c, "Plan not found")
+		response.GinNotFound(c, "Plan not found")
 		return
 	}
 
@@ -54,7 +54,7 @@ func (h *PlanHandler) PurchasePlan(c *gin.Context) {
 	// 获取用户钱包
 	wallet, err := h.app.DB.DB.SQLite.GetWalletByUserID(userID.(string))
 	if err != nil || wallet == nil {
-		response.BadRequest(c, "Wallet not found")
+		response.GinBadRequest(c, "Wallet not found")
 		return
 	}
 	transaction.WalletID = wallet.ID
@@ -72,7 +72,7 @@ func (h *PlanHandler) PurchasePlan(c *gin.Context) {
 		zap.String("planID", plan.ID),
 		zap.Float64("price", plan.Price))
 
-	response.Success(c, gin.H{
+	response.GinSuccess(c, gin.H{
 		"order_id": orderID,
 		"plan":     plan,
 		"amount":   plan.Price,

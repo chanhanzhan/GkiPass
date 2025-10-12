@@ -6,14 +6,15 @@ toolchain go1.24.2
 
 require (
 	github.com/gin-gonic/gin v1.11.0
-	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/google/uuid v1.6.0
+	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/mattn/go-sqlite3 v1.14.32
 	github.com/mojocn/base64Captcha v1.3.8
 	github.com/prometheus/client_golang v1.23.2
 	github.com/quic-go/quic-go v0.55.0
 	github.com/redis/go-redis/v9 v9.14.0
+	github.com/rs/cors v1.11.1
 	go.uber.org/zap v1.27.0
 	golang.org/x/crypto v0.42.0
 	golang.org/x/oauth2 v0.31.0

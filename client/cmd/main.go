@@ -4,386 +4,547 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"runtime"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
-	"gkipass/client/config"
-	"gkipass/client/core"
-	"gkipass/client/logger"
-	"gkipass/client/metrics"
-	"gkipass/client/tls"
-	"gkipass/client/ws"
-
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+
+	"gkipass/client/internal/app"
+	"gkipass/client/internal/config"
 )
 
+const (
+	// 应用信息
+	AppName    = "gkipass-node"
+	AppVersion = "1.0.0"
+
+	// 默认配置
+	DefaultConfigPath = "./config.json"
+	DefaultLogLevel   = "info"
+	DefaultDataDir    = "./data"
+)
+
+// 命令行参数
 var (
-	token     = flag.String("token", "", "节点认证Token（必填）")
-	server    = flag.String("s", "", "Plane服务器地址，例如: ws://plane:8080 （必填）")
-	nodeType  = flag.String("type", "entry", "节点类型: entry/exit")
-	nodeName  = flag.String("name", "", "节点名称（可选）")
-	groupID   = flag.String("group", "", "节点组ID（可选）")
-	logLevel  = flag.String("log", "info", "日志级别: debug/info/warn/error")
-	enableTLS = flag.Bool("tls", false, "启用节点间TLS加密")
-	certFile  = flag.String("cert", "", "TLS证书文件")
-	keyFile   = flag.String("key", "", "TLS私钥文件")
-	version   = "1.0.0"
+	configPath = flag.String("config", DefaultConfigPath, "配置文件路径")
+	logLevel   = flag.String("log-level", DefaultLogLevel, "日志级别 (debug, info, warn, error)")
+	dataDir    = flag.String("data-dir", DefaultDataDir, "数据目录")
+	daemon     = flag.Bool("daemon", false, "以守护进程模式运行")
+	version    = flag.Bool("version", false, "显示版本信息")
+	help       = flag.Bool("help", false, "显示帮助信息")
+
+	// 运行时参数
+	maxProcs  = flag.Int("max-procs", 0, "最大CPU核心数 (0=自动)")
+	memLimit  = flag.String("mem-limit", "", "内存限制 (如: 1GB, 512MB)")
+	pprofAddr = flag.String("pprof", "", "pprof监听地址 (如: :6060)")
+
+	// 调试参数 - 模拟客户端/服务端
+	debugMode     = flag.String("debug", "", "调试模式 (server[:port]/client:ip:port) 支持协议: tcp/udp/ws/wss/tls/tls-mux/kcp/quic")
+	debugProtocol = flag.String("protocol", "tcp", "调试协议 (tcp/udp/ws/wss/tls/tls-mux/kcp/quic)")
+
+	// 客户端调试参数
+	token     = flag.String("token", "", "客户端认证令牌 (客户端模式必需)")
+	planeAddr = flag.String("s", "", "Plane服务器地址 (客户端模式必需)")
+	apiKey    = flag.String("key", "", "服务端API密钥 (可设置或随机生成)")
+
+	// 其他调试参数
+	trafficTest  = flag.Bool("traffic-test", false, "启用流量测试")
+	testDataSize = flag.Int("test-data-size", 1024, "测试数据大小 (字节)")
+
+	// 开发参数
+	devMode = flag.Bool("dev", false, "开发模式")
 )
 
 func main() {
+	// 自定义flag用法信息
+	flag.Usage = printHelp
+
+	// 解析命令行参数
 	flag.Parse()
 
-	// 验证必填参数
-	if *token == "" || *server == "" {
-		fmt.Println("错误: --token 和 -s 参数为必填项")
-		fmt.Println("\n使用示例:")
-		fmt.Println("  ./client --token <your-token> -s ws://plane:8080")
-		fmt.Println("\n完整参数:")
-		flag.PrintDefaults()
-		os.Exit(1)
+	// 显示版本信息
+	if *version {
+		printVersion()
+		os.Exit(0)
 	}
 
-	printBanner()
+	// 显示帮助信息
+	if *help {
+		printHelp()
+		os.Exit(0)
+	}
 
-	// 构建配置
-	cfg := buildConfigFromFlags()
+	// 没有参数时显示帮助
+	if len(os.Args) == 1 {
+		printHelp()
+		os.Exit(0)
+	}
+
+	// 设置运行时参数
+	setupRuntime()
 
 	// 初始化日志
-	if err := logger.Init(*logLevel, "console", "stdout"); err != nil {
-		fmt.Printf("初始化日志失败: %v\n", err)
-		os.Exit(1)
-	}
+	logger := setupLogger(*logLevel)
 	defer logger.Sync()
 
-	logger.Info("GKI Pass Client 启动",
-		zap.String("version", version),
-		zap.String("node_type", *nodeType),
-		zap.String("server", *server),
-		zap.Bool("tls", *enableTLS))
+	// 设置全局日志
+	zap.ReplaceGlobals(logger)
 
-	// 创建自动证书管理器
-	certManager := tls.NewAutoCertManager(cfg.Node.ID, *server, *token, "./certs")
-	if err := certManager.Start(); err != nil {
-		logger.Error("启动证书管理器失败", zap.Error(err))
-		// 不退出程序，继续运行
+	logger.Info("启动GKI Pass节点",
+		zap.String("version", AppVersion),
+		zap.String("config_path", *configPath),
+		zap.String("data_dir", *dataDir),
+		zap.String("log_level", *logLevel),
+		zap.Bool("daemon", *daemon),
+		zap.Bool("dev_mode", *devMode))
+
+	// 创建数据目录
+	if err := createDataDir(*dataDir); err != nil {
+		logger.Fatal("创建数据目录失败", zap.Error(err))
 	}
 
-	// 创建隧道管理器
-	tunnelManager := core.NewTunnelManager(cfg.Node.Type)
-
-	// 如果有有效证书，配置TLS
-	if certManager.HasValidCertificate() {
-		tlsConfig := certManager.GetTLSConfig()
-		tunnelManager.SetTLSConfig(tlsConfig)
-		logger.Info("TLS配置已应用")
-	} else if *enableTLS {
-		logger.Warn("TLS已启用但无有效证书，将尝试自动获取")
+	// 加载配置
+	cfg, err := loadConfig(*configPath)
+	if err != nil {
+		logger.Fatal("加载配置失败", zap.Error(err))
 	}
 
-	// 创建WebSocket客户端
-	wsClient := ws.NewClient(&cfg.Plane)
-
-	// 创建增强版系统监控器
-	systemMonitor := metrics.NewEnhancedSystemMonitor(version)
-	if err := systemMonitor.Start(); err != nil {
-		logger.Error("启动系统监控器失败", zap.Error(err))
+	// 从命令行参数覆盖部分配置
+	if *apiKey != "" {
+		cfg.Plane.APIKey = *apiKey
+		logger.Debug("使用命令行指定的API密钥", zap.String("api_key", "*****"))
 	}
 
-	// 创建监控数据上报器
-	monitoringReporter := metrics.NewMonitoringReporter(
-		cfg.Node.ID,
-		*server,
-		*token,
-		systemMonitor,
-		tunnelManager,
-		wsClient,
-	)
+	// 验证配置
+	if err := validateConfig(cfg); err != nil {
+		logger.Fatal("配置验证失败", zap.Error(err))
+	}
 
-	// 创建指标收集器（保持兼容性）
-	collector := metrics.NewCollector(cfg.Node.ID, wsClient, tunnelManager)
+	// 设置数据目录
+	cfg.DataDir = *dataDir
 
-	// 创建消息处理器
-	handler := ws.NewHandler(wsClient, tunnelManager)
-
-	// 设置监控上报器到处理器
-	handler.SetMonitoringReporter(monitoringReporter)
-
-	// 设置消息回调
-	wsClient.SetOnMessage(func(msg *ws.Message) {
-		if err := handler.HandleMessage(msg); err != nil {
-			logger.Error("处理消息失败", zap.Error(err))
+	// 配置调试选项
+	if *debugMode != "" {
+		debugConfig, err := parseDebugMode(*debugMode, *debugProtocol, *token, *planeAddr, *apiKey, *trafficTest, *testDataSize, *logLevel)
+		if err != nil {
+			logger.Fatal("调试模式配置错误", zap.Error(err))
 		}
-	})
 
-	wsClient.SetOnConnected(func() {
-		logger.Info("WebSocket连接成功，开始注册节点")
-		if err := registerNode(wsClient, cfg); err != nil {
-			logger.Error("注册节点失败", zap.Error(err))
-		}
-	})
+		cfg.Debug = debugConfig
 
-	wsClient.SetOnDisconnected(func() {
-		logger.Warn("WebSocket连接断开")
-	})
-
-	// 连接到Plane
-	if err := wsClient.Connect(); err != nil {
-		logger.Fatal("连接到Plane失败", zap.Error(err))
+		logger.Info("启用调试模式",
+			zap.String("mode", debugConfig.Mode),
+			zap.String("protocol", debugConfig.Protocol),
+			zap.String("target_addr", debugConfig.TargetAddr),
+			zap.Int("listen_port", debugConfig.ListenPort),
+			zap.Bool("traffic_test", debugConfig.TrafficTest))
 	}
 
-	// 等待注册确认
-	logger.Info("等待注册确认...")
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// 创建应用实例
+	application, err := app.New(cfg)
+	if err != nil {
+		logger.Fatal("创建应用实例失败", zap.Error(err))
+	}
+
+	// 创建上下文
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	ackMsg, err := wsClient.WaitForMessage(ctx, ws.MsgTypeRegisterAck)
+	// 设置信号处理
+	setupSignalHandlers(ctx, cancel, application, logger)
+
+	// 启动应用
+	logger.Info("启动应用服务")
+	if err := application.Start(); err != nil {
+		logger.Fatal("启动应用失败", zap.Error(err))
+	}
+
+	// 等待停止信号
+	<-ctx.Done()
+
+	// 优雅停止应用
+	logger.Info("开始优雅停止应用")
+
+	if err := application.Stop(); err != nil {
+		logger.Error("停止应用时发生错误", zap.Error(err))
+		os.Exit(1)
+	}
+
+	logger.Info("应用已优雅停止")
+}
+
+// printVersion 打印版本信息
+func printVersion() {
+	fmt.Printf("%s version %s\n", AppName, AppVersion)
+	fmt.Printf("Go version: %s\n", runtime.Version())
+	fmt.Printf("OS/Arch: %s/%s\n", runtime.GOOS, runtime.GOARCH)
+}
+
+// printHelp 打印帮助信息
+func printHelp() {
+	fmt.Printf("Usage: %s [options]\n\n", AppName)
+
+	fmt.Println("调试模式 (Debug Mode):")
+	fmt.Println("  服务端模式: --debug server[:port] --protocol <协议>")
+	fmt.Println("  客户端模式: --debug client:ip:port --protocol <协议> --token <令牌> -s <plane-server> [--key <API密钥>]")
+	fmt.Println("")
+	fmt.Println("支持的协议: tcp, udp, ws, wss, tls, tls-mux, kcp, quic")
+	fmt.Println("")
+
+	fmt.Println("Options:")
+	flag.PrintDefaults()
+
+	fmt.Println("\n调试模式示例:")
+	fmt.Printf("  # 启动TCP服务端 (端口9230)\n")
+	fmt.Printf("  %s --debug server --protocol tcp\n", AppName)
+	fmt.Printf("\n")
+	fmt.Printf("  # 启动TCP服务端 (自定义端口)\n")
+	fmt.Printf("  %s --debug server:8080 --protocol tcp\n", AppName)
+	fmt.Printf("\n")
+	fmt.Printf("  # 连接到服务端\n")
+	fmt.Printf("  %s --debug client:127.0.0.1:9230 --protocol tcp --token mytoken -s ws://plane.example.com/ws --key myapikey\n", AppName)
+	fmt.Printf("\n")
+	fmt.Printf("  # WebSocket服务端\n")
+	fmt.Printf("  %s --debug server:8080 --protocol ws --traffic-test\n", AppName)
+	fmt.Printf("\n")
+
+	fmt.Println("常规模式示例:")
+	fmt.Printf("  %s -config ./config.json\n", AppName)
+	fmt.Printf("  %s -config ./config.json -log-level debug\n", AppName)
+	fmt.Printf("  %s -config ./config.json -daemon\n", AppName)
+	fmt.Printf("  %s -version\n", AppName)
+}
+
+// setupRuntime 设置运行时参数
+func setupRuntime() {
+	// 设置最大CPU核心数
+	if *maxProcs > 0 {
+		runtime.GOMAXPROCS(*maxProcs)
+	}
+
+	// 这里可以添加更多运行时设置
+	// 如内存限制、GC调优等
+}
+
+// setupLogger 设置日志
+func setupLogger(level string) *zap.Logger {
+	// 解析日志级别
+	var zapLevel zapcore.Level
+	switch level {
+	case "debug":
+		zapLevel = zapcore.DebugLevel
+	case "info":
+		zapLevel = zapcore.InfoLevel
+	case "warn":
+		zapLevel = zapcore.WarnLevel
+	case "error":
+		zapLevel = zapcore.ErrorLevel
+	default:
+		zapLevel = zapcore.InfoLevel
+	}
+
+	// 配置日志编码器
+	var encoderConfig zapcore.EncoderConfig
+	if *devMode {
+		encoderConfig = zap.NewDevelopmentEncoderConfig()
+		encoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
+	} else {
+		encoderConfig = zap.NewProductionEncoderConfig()
+		encoderConfig.TimeKey = "timestamp"
+		encoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
+	}
+
+	// 创建编码器
+	var encoder zapcore.Encoder
+	if *devMode {
+		encoder = zapcore.NewConsoleEncoder(encoderConfig)
+	} else {
+		encoder = zapcore.NewJSONEncoder(encoderConfig)
+	}
+
+	// 配置输出
+	writeSyncer := zapcore.AddSync(os.Stdout)
+
+	// 创建核心
+	core := zapcore.NewCore(encoder, writeSyncer, zapLevel)
+
+	// 创建日志器
+	logger := zap.New(core, zap.AddCaller(), zap.AddStacktrace(zapcore.ErrorLevel))
+
+	return logger
+}
+
+// createDataDir 创建数据目录
+func createDataDir(dataDir string) error {
+	// 转换为绝对路径
+	absPath, err := filepath.Abs(dataDir)
 	if err != nil {
-		logger.Fatal("等待注册确认超时", zap.Error(err))
+		return fmt.Errorf("获取绝对路径失败: %w", err)
 	}
 
-	var ackResp ws.NodeRegisterResponse
-	if err := ackMsg.ParseData(&ackResp); err != nil {
-		logger.Fatal("解析注册响应失败", zap.Error(err))
-	}
-
-	if !ackResp.Success {
-		logger.Fatal("节点注册失败", zap.String("message", ackResp.Message))
-	}
-
-	firstRuleReceived := make(chan bool, 1)
-
-	wsClient.SetOnMessage(func(msg *ws.Message) {
-		if msg.Type == ws.MsgTypeSyncRules {
-			select {
-			case firstRuleReceived <- true:
-			default:
-			}
+	// 检查目录是否存在
+	if _, err := os.Stat(absPath); os.IsNotExist(err) {
+		// 创建目录
+		if err := os.MkdirAll(absPath, 0755); err != nil {
+			return fmt.Errorf("创建目录失败: %w", err)
 		}
-		if err := handler.HandleMessage(msg); err != nil {
-			logger.Error("处理消息失败", zap.Error(err))
+	}
+
+	// 检查目录权限
+	if err := checkDirPermissions(absPath); err != nil {
+		return fmt.Errorf("检查目录权限失败: %w", err)
+	}
+
+	return nil
+}
+
+// checkDirPermissions 检查目录权限
+func checkDirPermissions(dir string) error {
+	// 检查读权限
+	if _, err := os.Open(dir); err != nil {
+		return fmt.Errorf("目录不可读: %w", err)
+	}
+
+	// 检查写权限
+	testFile := filepath.Join(dir, ".write_test")
+	file, err := os.Create(testFile)
+	if err != nil {
+		return fmt.Errorf("目录不可写: %w", err)
+	}
+	file.Close()
+	os.Remove(testFile)
+
+	return nil
+}
+
+// loadConfig 加载配置
+func loadConfig(configPath string) (*config.Config, error) {
+	// 检查配置文件是否存在
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		// 如果配置文件不存在，创建默认配置
+		cfg := config.DefaultConfig()
+		if err := config.SaveConfig(cfg, configPath); err != nil {
+			return nil, fmt.Errorf("保存默认配置失败: %w", err)
 		}
-	})
-
-	// 等待首次配置（最多30秒）
-	select {
-	case <-firstRuleReceived:
-		logger.Info("✅ 配置已下发，节点完全就绪")
-	case <-time.After(30 * time.Second):
-		logger.Warn("⚠️  未收到配置，节点以默认配置运行")
+		fmt.Printf("已创建默认配置文件: %s\n", configPath)
+		return cfg, nil
 	}
 
-	// 启动流量收集器
-	collector.Start()
-
-	// 启动监控数据上报器
-	if err := monitoringReporter.Start(); err != nil {
-		logger.Error("启动监控上报器失败", zap.Error(err))
+	// 加载配置
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("加载配置文件失败: %w", err)
 	}
 
-	// 启动心跳
-	go startHeartbeat(wsClient, cfg, collector)
+	return cfg, nil
+}
 
-	// 启用pprof性能分析
-	go StartPProfServer(":6060")
+// validateConfig 验证配置
+func validateConfig(cfg *config.Config) error {
+	// 节点ID可以为空，将由身份管理器自动生成
 
-	logger.Info("🎉 节点已完全启动，等待流量转发...")
+	// 验证Plane地址
+	if len(cfg.PlaneURLs) == 0 {
+		return fmt.Errorf("至少需要配置一个Plane地址")
+	}
 
-	// 等待信号
+	// 验证端口范围
+	if cfg.Network.PortRange.Min >= cfg.Network.PortRange.Max {
+		return fmt.Errorf("端口范围配置无效: %d >= %d",
+			cfg.Network.PortRange.Min, cfg.Network.PortRange.Max)
+	}
+
+	// 验证证书配置
+	if cfg.TLS.CertDir == "" {
+		return fmt.Errorf("证书目录不能为空")
+	}
+
+	return nil
+}
+
+// setupSignalHandlers 设置信号处理
+func setupSignalHandlers(ctx context.Context, cancel context.CancelFunc, app *app.Application, logger *zap.Logger) {
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	<-sigChan
 
-	logger.Info("收到停止信号，开始优雅关闭...")
+	// 监听信号
+	signal.Notify(sigChan,
+		syscall.SIGINT,  // Ctrl+C
+		syscall.SIGTERM, // 终止信号
+		syscall.SIGQUIT, // 退出信号
+		syscall.SIGHUP,  // 挂起信号（用于重载配置）
+	)
 
-	// 停止证书管理器
-	certManager.Stop()
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case sig := <-sigChan:
+				logger.Info("收到信号", zap.String("signal", sig.String()))
 
-	// 停止监控上报器
-	monitoringReporter.Stop()
+				switch sig {
+				case syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT:
+					// 停止信号
+					logger.Info("收到停止信号，开始优雅停止")
+					cancel()
+					return
 
-	// 停止系统监控器
-	systemMonitor.Stop()
-
-	// 停止收集器
-	collector.Stop()
-
-	// 停止隧道管理器
-	tunnelManager.Stop()
-
-	// 关闭WebSocket
-	if err := wsClient.Close(); err != nil {
-		logger.Error("关闭WebSocket失败", zap.Error(err))
-	}
-
-	logger.Info("节点已停止")
-}
-
-// registerNode 注册节点
-func registerNode(wsClient *ws.Client, cfg *config.Config) error {
-	ip, err := getLocalIP()
-	if err != nil {
-		ip = "127.0.0.1"
-	}
-
-	req := ws.NodeRegisterRequest{
-		NodeID:   cfg.Node.ID,
-		NodeName: cfg.Node.Name,
-		NodeType: cfg.Node.Type,
-		GroupID:  cfg.Node.GroupID,
-		Version:  version,
-		IP:       ip,
-		Port:     8080, // SOCKS5监听端口
-		CK:       cfg.Plane.CK,
-		Capabilities: map[string]bool{
-			// 基础协议
-			"tcp":   true,
-			"udp":   true,
-			"http":  true,
-			"https": true,
-			"tls":   *enableTLS,
-			"socks": true,
-			// WebSocket协议
-			"ws":  true,
-			"wss": *enableTLS,
-			// 现代协议
-			"quic":  *enableTLS,
-			"http3": *enableTLS,
-			// 功能特性
-			"load_balance":      true,
-			"health_check":      true,
-			"traffic_stats":     true,
-			"auto_cert":         true,
-			"multi_protocol":    true,
-			"tls_multiplexing":  *enableTLS,
-			"monitoring":        true,
-			"performance_stats": true,
-		},
-	}
-
-	msg, err := ws.NewMessage(ws.MsgTypeNodeRegister, req)
-	if err != nil {
-		return fmt.Errorf("创建注册消息失败: %w", err)
-	}
-
-	logger.Info("发送注册请求",
-		zap.String("node_id", req.NodeID),
-		zap.String("node_type", req.NodeType),
-		zap.String("group_id", req.GroupID))
-
-	return wsClient.Send(msg)
-}
-
-// startHeartbeat 启动心跳
-func startHeartbeat(wsClient *ws.Client, cfg *config.Config, collector *metrics.Collector) {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		if !wsClient.IsConnected() {
-			continue
-		}
-
-		// 获取完整监控快照
-		snapshot := collector.GetMonitorSnapshot()
-
-		req := ws.HeartbeatRequest{
-			NodeID:      cfg.Node.ID,
-			Status:      "online",
-			CPUUsage:    snapshot.CPUUsage,
-			MemoryUsage: snapshot.MemUsage,
-			Connections: int(snapshot.Connections),
-		}
-
-		msg, err := ws.NewMessage(ws.MsgTypeHeartbeat, req)
-		if err != nil {
-			logger.Error("创建心跳消息失败", zap.Error(err))
-			continue
-		}
-
-		if err := wsClient.Send(msg); err != nil {
-			logger.Error("发送心跳失败", zap.Error(err))
-		} else {
-			logger.Debug("心跳已发送",
-				zap.Int("connections", int(snapshot.Connections)),
-				zap.Float64("cpu", snapshot.CPUUsage),
-				zap.Int64("mem_mb", snapshot.MemUsage/1024/1024))
-		}
-	}
-}
-
-// getLocalIP 获取本机IP
-func getLocalIP() (string, error) {
-	addrs, err := net.InterfaceAddrs()
-	if err != nil {
-		return "", err
-	}
-
-	for _, addr := range addrs {
-		if ipNet, ok := addr.(*net.IPNet); ok && !ipNet.IP.IsLoopback() {
-			if ipNet.IP.To4() != nil {
-				return ipNet.IP.String(), nil
+				case syscall.SIGHUP:
+					// 重载配置信号
+					logger.Info("收到重载信号，开始重载配置")
+					if err := reloadConfig(app, logger); err != nil {
+						logger.Error("重载配置失败", zap.Error(err))
+					}
+				}
 			}
 		}
-	}
-
-	return "", fmt.Errorf("未找到有效IP")
+	}()
 }
 
-// buildConfigFromFlags 从命令行参数构建配置
-func buildConfigFromFlags() *config.Config {
-	nodeID := fmt.Sprintf("node-%d", time.Now().Unix())
-	if *nodeName == "" {
-		*nodeName = fmt.Sprintf("%s-node-%d", *nodeType, time.Now().Unix()%1000)
+// reloadConfig 重载配置
+func reloadConfig(app *app.Application, logger *zap.Logger) error {
+	logger.Info("开始重载配置", zap.String("config_path", *configPath))
+
+	// 加载新配置
+	newCfg, err := loadConfig(*configPath)
+	if err != nil {
+		return fmt.Errorf("加载新配置失败: %w", err)
 	}
 
-	return &config.Config{
-		Node: config.NodeConfig{
-			ID:      nodeID,
-			Name:    *nodeName,
-			Type:    *nodeType,
-			GroupID: *groupID,
-		},
-		Plane: config.PlaneConfig{
-			URL:                  *server + "/ws/node",
-			CK:                   *token,
-			ReconnectInterval:    5,
-			MaxReconnectAttempts: 0,
-			Timeout:              30,
-		},
-		Pool: config.PoolConfig{
-			MinConns:          5,
-			MaxConns:          100,
-			IdleTimeout:       300,
-			HeartbeatInterval: 30,
-			AutoScale:         true,
-		},
-		TLS: config.TLSConfig{
-			Enabled:         *enableTLS,
-			Cert:            *certFile,
-			Key:             *keyFile,
-			PinVerification: false,
-		},
+	// 验证新配置
+	if err := validateConfig(newCfg); err != nil {
+		return fmt.Errorf("新配置验证失败: %w", err)
+	}
+
+	// TODO: 实现配置重载功能
+	// 重载应用配置
+	// if err := app.ReloadConfig(newCfg); err != nil {
+	// 	return fmt.Errorf("应用配置重载失败: %w", err)
+	// }
+
+	logger.Info("配置重载完成（功能未实现，需要重启应用）")
+	return nil
+}
+
+// parseDebugMode 解析调试模式
+func parseDebugMode(debugMode, protocol, token, planeAddr string, apiKey string, trafficTest bool, testDataSize int, logLevel string) (*config.DebugConfig, error) {
+	// 验证协议
+	validProtocols := map[string]bool{
+		"tcp":     true,
+		"udp":     true,
+		"ws":      true,
+		"wss":     true,
+		"tls":     true,
+		"tls-mux": true,
+		"kcp":     true,
+		"quic":    true,
+	}
+
+	if !validProtocols[protocol] {
+		return nil, fmt.Errorf("不支持的协议: %s, 支持的协议: tcp/udp/ws/wss/tls/tls-mux/kcp/quic", protocol)
+	}
+
+	config := &config.DebugConfig{
+		Enabled:      true,
+		Protocol:     protocol,
+		TrafficTest:  trafficTest,
+		TestDataSize: testDataSize,
+		TestInterval: 5 * time.Second,
+		TestDuration: 30 * time.Second,
+		LogLevel:     logLevel,
+	}
+
+	// 解析调试模式
+	if strings.HasPrefix(debugMode, "server") {
+		// 服务端模式: server 或 server:port
+		config.Mode = "server"
+		config.ListenPort = 9230 // 默认端口
+
+		if strings.Contains(debugMode, ":") {
+			parts := strings.Split(debugMode, ":")
+			if len(parts) != 2 {
+				return nil, fmt.Errorf("服务端模式格式错误，应为: server[:port]")
+			}
+
+			port, err := strconv.Atoi(parts[1])
+			if err != nil {
+				return nil, fmt.Errorf("端口格式错误: %s", parts[1])
+			}
+
+			if port <= 0 || port > 65535 {
+				return nil, fmt.Errorf("端口范围错误: %d，应在1-65535之间", port)
+			}
+
+			config.ListenPort = port
+		}
+
+	} else if strings.HasPrefix(debugMode, "client:") {
+		// 客户端模式: client:ip:port
+		config.Mode = "client"
+
+		// 验证必需参数
+		if token == "" {
+			return nil, fmt.Errorf("客户端模式需要 --token 参数")
+		}
+		if planeAddr == "" {
+			return nil, fmt.Errorf("客户端模式需要 -s plane-server 参数")
+		}
+
+		// 解析地址
+		parts := strings.Split(debugMode, ":")
+		if len(parts) != 3 {
+			return nil, fmt.Errorf("客户端模式格式错误，应为: client:ip:port")
+		}
+
+		ip := parts[1]
+		if ip == "" {
+			return nil, fmt.Errorf("IP地址不能为空")
+		}
+
+		port, err := strconv.Atoi(parts[2])
+		if err != nil {
+			return nil, fmt.Errorf("端口格式错误: %s", parts[2])
+		}
+
+		if port <= 0 || port > 65535 {
+			return nil, fmt.Errorf("端口范围错误: %d，应在1-65535之间", port)
+		}
+
+		config.TargetAddr = fmt.Sprintf("%s:%d", ip, port)
+		config.Token = token
+		config.PlaneAddr = planeAddr
+
+		// API密钥，如果未指定则为空（服务端可以自动生成）
+		if apiKey != "" {
+			config.APIKey = apiKey
+		}
+
+	} else {
+		return nil, fmt.Errorf("调试模式格式错误，应为: server[:port] 或 client:ip:port")
+	}
+
+	return config, nil
+}
+
+// handlePanic 处理panic
+func handlePanic() {
+	if r := recover(); r != nil {
+		zap.L().Error("应用发生panic",
+			zap.Any("panic", r),
+			zap.Stack("stack"))
+		os.Exit(1)
 	}
 }
 
-func printBanner() {
-	banner := `
-╔═══════════════════════════════════════════════════════╗
-║                                                       ║
-║   ██████╗ ██╗  ██╗██╗    ██████╗  █████╗ ███████╗███╗
-║  ██╔════╝ ██║ ██╔╝██║    ██╔══██╗██╔══██╗██╔════╝████║
-║  ██║  ███╗█████╔╝ ██║    ██████╔╝███████║███████╗╚═██║
-║  ██║   ██║██╔═██╗ ██║    ██╔═══╝ ██╔══██║╚════██║  ██║
-║  ╚██████╔╝██║  ██╗██║    ██║     ██║  ██║███████║  ██║
-║   ╚═════╝ ╚═╝  ╚═╝╚═╝    ╚═╝     ╚═╝  ╚═╝╚══════╝  ╚═╝
-║                                                       ║
-║           Client Node - Bidirectional Tunnel         ║
-║                      v1.0.0                           ║
-║                                                       ║
-╚═══════════════════════════════════════════════════════╝
-`
-	fmt.Println(banner)
+// init 初始化函数
+func init() {
+	// 设置panic处理
+	defer handlePanic()
 }

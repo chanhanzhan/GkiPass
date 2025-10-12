@@ -34,7 +34,7 @@ func (h *WalletHandler) GetBalance(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, gin.H{
+	response.GinSuccess(c, gin.H{
 		"balance": wallet.Balance,
 		"frozen":  wallet.Frozen,
 	})
@@ -49,7 +49,7 @@ type RechargeRequest struct {
 func (h *WalletHandler) Recharge(c *gin.Context) {
 	var req RechargeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.GinBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
@@ -84,7 +84,7 @@ func (h *WalletHandler) Recharge(c *gin.Context) {
 		logger.Error("创建交易记录失败", zap.Error(err))
 	}
 
-	response.Success(c, gin.H{
+	response.GinSuccess(c, gin.H{
 		"balance":        newBalance,
 		"transaction_id": tx.ID,
 	})
@@ -103,7 +103,7 @@ func (h *WalletHandler) ListTransactions(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, gin.H{
+	response.GinSuccess(c, gin.H{
 		"data":        transactions,
 		"total":       total,
 		"page":        page,

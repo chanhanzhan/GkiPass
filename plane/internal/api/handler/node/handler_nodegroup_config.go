@@ -41,7 +41,7 @@ func (h *NodeGroupConfigHandler) GetNodeGroupConfig(c *gin.Context) {
 	// 验证节点组是否存在
 	group, err := h.app.DB.DB.SQLite.GetNodeGroup(groupID)
 	if err != nil || group == nil {
-		response.NotFound(c, "Node group not found")
+		response.GinNotFound(c, "Node group not found")
 		return
 	}
 
@@ -49,7 +49,7 @@ func (h *NodeGroupConfigHandler) GetNodeGroupConfig(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	role, _ := c.Get("role")
 	if role != "admin" && group.UserID != userID.(string) {
-		response.Forbidden(c, "No permission to view this node group config")
+		response.GinForbidden(c, "No permission to view this node group config")
 		return
 	}
 
@@ -63,7 +63,7 @@ func (h *NodeGroupConfigHandler) GetNodeGroupConfig(c *gin.Context) {
 
 	// 如果配置不存在，返回默认配置
 	if config == nil {
-		response.Success(c, gin.H{
+		response.GinSuccess(c, gin.H{
 			"group_id":           groupID,
 			"allowed_protocols":  []string{},
 			"port_range":         "10000-60000",
@@ -85,7 +85,7 @@ func (h *NodeGroupConfigHandler) GetNodeGroupConfig(c *gin.Context) {
 	var startPort, endPort int
 	fmt.Sscanf(config.PortRange, "%d-%d", &startPort, &endPort)
 
-	response.Success(c, gin.H{
+	response.GinSuccess(c, gin.H{
 		"group_id":           config.GroupID,
 		"allowed_protocols":  protocols,
 		"port_range":         config.PortRange,
@@ -102,14 +102,14 @@ func (h *NodeGroupConfigHandler) UpdateNodeGroupConfig(c *gin.Context) {
 
 	var req NodeGroupConfigRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.GinBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
 	// 验证节点组是否存在
 	group, err := h.app.DB.DB.SQLite.GetNodeGroup(groupID)
 	if err != nil || group == nil {
-		response.NotFound(c, "Node group not found")
+		response.GinNotFound(c, "Node group not found")
 		return
 	}
 
@@ -117,28 +117,28 @@ func (h *NodeGroupConfigHandler) UpdateNodeGroupConfig(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	role, _ := c.Get("role")
 	if role != "admin" && group.UserID != userID.(string) {
-		response.Forbidden(c, "No permission to update this node group config")
+		response.GinForbidden(c, "No permission to update this node group config")
 		return
 	}
 
 	// 验证参数
 	if req.PortRangeStart <= 0 || req.PortRangeEnd <= 0 {
-		response.BadRequest(c, "Invalid port range")
+		response.GinBadRequest(c, "Invalid port range")
 		return
 	}
 	if req.PortRangeStart >= req.PortRangeEnd {
-		response.BadRequest(c, "Port range start must be less than end")
+		response.GinBadRequest(c, "Port range start must be less than end")
 		return
 	}
 	if req.TrafficMultiplier <= 0 {
-		response.BadRequest(c, "Traffic multiplier must be greater than 0")
+		response.GinBadRequest(c, "Traffic multiplier must be greater than 0")
 		return
 	}
 
 	// 序列化协议列表
 	protocolsJSON, err := json.Marshal(req.AllowedProtocols)
 	if err != nil {
-		response.BadRequest(c, "Invalid protocols format")
+		response.GinBadRequest(c, "Invalid protocols format")
 		return
 	}
 
@@ -179,14 +179,14 @@ func (h *NodeGroupConfigHandler) ResetNodeGroupConfig(c *gin.Context) {
 	// 验证节点组是否存在
 	group, err := h.app.DB.DB.SQLite.GetNodeGroup(groupID)
 	if err != nil || group == nil {
-		response.NotFound(c, "Node group not found")
+		response.GinNotFound(c, "Node group not found")
 		return
 	}
 
 	// 权限检查（仅管理员）
 	role, _ := c.Get("role")
 	if role != "admin" {
-		response.Forbidden(c, "Only admin can reset node group config")
+		response.GinForbidden(c, "Only admin can reset node group config")
 		return
 	}
 

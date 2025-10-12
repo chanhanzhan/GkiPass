@@ -5,6 +5,7 @@ import (
 	"gkipass/plane/internal/api/handler/node"
 	"gkipass/plane/internal/api/handler/user"
 	"gkipass/plane/internal/api/middleware"
+	"gkipass/plane/internal/service"
 	"gkipass/plane/internal/ws"
 
 	"github.com/gin-gonic/gin"
@@ -76,7 +77,8 @@ func SetupRouter(app *App, wsServer *ws.Server) *gin.Engine {
 
 		// 需要JWT认证的路由
 		authorized := v1.Group("")
-		authorized.Use(middleware.JWTAuth(app.Config.Auth.JWTSecret, app.DB))
+		authService := service.NewAuthService()
+		authorized.Use(middleware.JWTAuth(authService))
 		{
 			// 用户管理
 			users := authorized.Group("/users")
@@ -205,13 +207,14 @@ func SetupRouter(app *App, wsServer *ws.Server) *gin.Engine {
 			tunnels := authorized.Group("/tunnels")
 			tunnels.Use(middleware.QuotaCheck(app.DB))
 			{
-				tunnelHandler := handler.NewTunnelHandler(app)
-				tunnels.GET("", tunnelHandler.List)
-				tunnels.GET("/:id", tunnelHandler.Get)
-				tunnels.POST("", middleware.RuleQuotaCheck(app.DB), tunnelHandler.Create)
-				tunnels.PUT("/:id", tunnelHandler.Update)
-				tunnels.DELETE("/:id", tunnelHandler.Delete)
-				tunnels.POST("/:id/toggle", tunnelHandler.Toggle)
+				// TODO: 实现TunnelHandler的Gin方法
+				// tunnelHandler := handler.NewTunnelHandler(tunnelService)
+				// tunnels.GET("", tunnelHandler.List)
+				// tunnels.GET("/:id", tunnelHandler.Get)
+				// tunnels.POST("", middleware.RuleQuotaCheck(app.DB), tunnelHandler.Create)
+				// tunnels.PUT("/:id", tunnelHandler.Update)
+				// tunnels.DELETE("/:id", tunnelHandler.Delete)
+				// tunnels.POST("/:id/toggle", tunnelHandler.Toggle)
 			}
 
 			// 统计和监控

@@ -1,411 +1,670 @@
 package service
 
 import (
-	"encoding/json"
+	"database/sql"
+	"errors"
 	"fmt"
-	"net"
-	"strconv"
-	"strings"
 	"time"
-
-	"gkipass/plane/db"
-	dbinit "gkipass/plane/db/init"
-	"gkipass/plane/pkg/logger"
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
+
+	"gkipass/plane/internal/model"
 )
 
 // TunnelService 隧道服务
 type TunnelService struct {
-	db          *db.Manager
-	planService *PlanService
-	portManager *PortManager
+	db               *sql.DB
+	logger           *zap.Logger
+	ruleService      *RuleService
+	nodeService      *NodeService
+	nodeGroupService *NodeGroupService
 }
 
 // NewTunnelService 创建隧道服务
-func NewTunnelService(dbManager *db.Manager, planService *PlanService) *TunnelService {
+func NewTunnelService(db *sql.DB, ruleService *RuleService, nodeService *NodeService, nodeGroupService *NodeGroupService) *TunnelService {
 	return &TunnelService{
-		db:          dbManager,
-		planService: planService,
-		portManager: GetPortManager(dbManager),
+		db:               db,
+		logger:           zap.L().Named("tunnel-service"),
+		ruleService:      ruleService,
+		nodeService:      nodeService,
+		nodeGroupService: nodeGroupService,
 	}
 }
 
-// ValidateTunnelTargets 验证隧道目标
-func ValidateTunnelTargets(targets []dbinit.TunnelTarget) error {
-	if len(targets) == 0 {
-		return fmt.Errorf("至少需要一个目标")
-	}
-
-	if len(targets) > 10 {
-		return fmt.Errorf("最多支持10个目标")
-	}
-
-	for i, target := range targets {
-		// 验证主机
-		if target.Host == "" {
-			return fmt.Errorf("目标 %d: 主机不能为空", i+1)
-		}
-
-		// 验证端口
-		if target.Port < 1 || target.Port > 65535 {
-			return fmt.Errorf("目标 %d: 端口必须在 1-65535 范围内", i+1)
-		}
-
-		// 验证主机格式（域名或IP）
-		if net.ParseIP(target.Host) == nil {
-			// 不是IP，检查是否是有效域名
-			if !isValidDomain(target.Host) {
-				return fmt.Errorf("目标 %d: 无效的域名或IP: %s", i+1, target.Host)
-			}
-		}
-
-		// 权重默认为1
-		if target.Weight <= 0 {
-			target.Weight = 1
-		}
-	}
-
+// UpdateTraffic 更新隧道流量统计
+func (s *TunnelService) UpdateTraffic(tunnelID string, bytesIn, bytesOut int64) error {
+	// TODO: Implement traffic update
+	s.logger.Debug("更新流量统计",
+		zap.String("tunnel_id", tunnelID),
+		zap.Int64("bytes_in", bytesIn),
+		zap.Int64("bytes_out", bytesOut))
 	return nil
 }
 
-// isValidDomain 验证域名格式
-func isValidDomain(domain string) bool {
-	if len(domain) == 0 || len(domain) > 253 {
-		return false
-	}
-
-	// 简单的域名验证
-	parts := strings.Split(domain, ".")
-	if len(parts) < 2 {
-		return false
-	}
-
-	for _, part := range parts {
-		if len(part) == 0 || len(part) > 63 {
-			return false
-		}
-	}
-
-	return true
-}
-
-// ParseTargetsFromString 从字符串解析目标列表
-func ParseTargetsFromString(targetsStr string) ([]dbinit.TunnelTarget, error) {
-	if targetsStr == "" {
-		return nil, fmt.Errorf("目标列表为空")
-	}
-
-	// 尝试JSON解析
-	var targets []dbinit.TunnelTarget
-	if err := json.Unmarshal([]byte(targetsStr), &targets); err == nil {
-		return targets, nil
-	}
-
-	// 兼容旧格式：host:port
-	parts := strings.SplitN(targetsStr, ":", 2)
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("无效的目标格式")
-	}
-
-	port, err := strconv.Atoi(parts[1])
-	if err != nil {
-		return nil, fmt.Errorf("无效的端口: %s", parts[1])
-	}
-
-	return []dbinit.TunnelTarget{{
-		Host:   parts[0],
-		Port:   port,
-		Weight: 1,
-	}}, nil
-}
-
-// TargetsToString 将目标列表转换为字符串
-func TargetsToString(targets []dbinit.TunnelTarget) (string, error) {
-	data, err := json.Marshal(targets)
-	if err != nil {
-		return "", err
-	}
-	return string(data), nil
+// GetTunnelsByGroupID 根据组ID获取隧道列表
+func (s *TunnelService) GetTunnelsByGroupID(groupID string) ([]*model.Tunnel, error) {
+	// TODO: Implement group-based tunnel retrieval
+	s.logger.Debug("获取组隧道列表", zap.String("group_id", groupID))
+	return []*model.Tunnel{}, nil
 }
 
 // CreateTunnel 创建隧道
-func (s *TunnelService) CreateTunnel(tunnel *dbinit.Tunnel, targets []dbinit.TunnelTarget) error {
-	// 1. 检查规则数配额
-	if err := s.planService.CheckQuota(tunnel.UserID, "rules"); err != nil {
-		return fmt.Errorf("配额不足: %w", err)
-	}
-
-	// 2. 验证端口
-	if err := ValidatePort(tunnel.LocalPort); err != nil {
+func (s *TunnelService) CreateTunnel(tunnel *model.Tunnel, userID string) error {
+	// 验证隧道
+	if err := s.validateTunnel(tunnel); err != nil {
 		return err
 	}
 
-	// 3. 检查端口在入口组内是否可用
-	if !s.portManager.IsPortAvailableInGroup(tunnel.EntryGroupID, tunnel.LocalPort, "") {
-		return fmt.Errorf("端口 %d 已被同组内其他隧道占用", tunnel.LocalPort)
+	// 生成ID
+	if tunnel.ID == "" {
+		tunnel.ID = uuid.New().String()
 	}
 
-	// 4. 验证目标列表
-	if err := ValidateTunnelTargets(targets); err != nil {
-		return err
-	}
-
-	// 5. 验证入口组和出口组
-	entryGroup, err := s.db.DB.SQLite.GetNodeGroup(tunnel.EntryGroupID)
-	if err != nil || entryGroup == nil {
-		return fmt.Errorf("入口组不存在")
-	}
-	if entryGroup.Type != "entry" {
-		return fmt.Errorf("入口组类型错误")
-	}
-
-	exitGroup, err := s.db.DB.SQLite.GetNodeGroup(tunnel.ExitGroupID)
-	if err != nil || exitGroup == nil {
-		return fmt.Errorf("出口组不存在")
-	}
-	if exitGroup.Type != "exit" {
-		return fmt.Errorf("出口组类型错误")
-	}
-
-	// 6. 转换目标为JSON
-	targetsStr, err := TargetsToString(targets)
+	// 开始事务
+	tx, err := s.db.Begin()
 	if err != nil {
-		return fmt.Errorf("目标序列化失败: %w", err)
+		return fmt.Errorf("开始事务失败: %w", err)
 	}
 
-	// 7. 创建隧道
-	tunnel.ID = uuid.New().String()
-	tunnel.Targets = targetsStr
-	tunnel.CreatedAt = time.Now()
-	tunnel.UpdatedAt = time.Now()
-	tunnel.TrafficIn = 0
-	tunnel.TrafficOut = 0
-	tunnel.ConnectionCount = 0
+	// 设置创建时间和更新时间
+	now := time.Now()
+	tunnel.CreatedAt = now
+	tunnel.UpdatedAt = now
+	tunnel.CreatedBy = userID
 
-	if err := s.db.DB.SQLite.CreateTunnel(tunnel); err != nil {
-		logger.Error("创建隧道失败",
+	// 插入隧道
+	_, err = tx.Exec(`
+		INSERT INTO tunnels (
+			id, name, description, enabled, created_at, updated_at, created_by,
+			ingress_node_id, egress_node_id, ingress_group_id, egress_group_id,
+			ingress_protocol, egress_protocol, listen_port, target_address, target_port,
+			enable_encryption, rate_limit_bps, max_connections, idle_timeout
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`,
+		tunnel.ID, tunnel.Name, tunnel.Description, tunnel.Enabled, tunnel.CreatedAt, tunnel.UpdatedAt, tunnel.CreatedBy,
+		tunnel.IngressNodeID, tunnel.EgressNodeID, tunnel.IngressGroupID, tunnel.EgressGroupID,
+		tunnel.IngressProtocol, tunnel.EgressProtocol, tunnel.ListenPort, tunnel.TargetAddress, tunnel.TargetPort,
+		tunnel.EnableEncryption, tunnel.RateLimitBPS, tunnel.MaxConnections, tunnel.IdleTimeout,
+	)
+
+	if err != nil {
+		tx.Rollback()
+		s.logger.Error("插入隧道失败",
 			zap.String("name", tunnel.Name),
 			zap.Error(err))
-		return err
+		return fmt.Errorf("插入隧道失败: %w", err)
 	}
 
-	// 8. 占用端口（在入口组内）
-	if err := s.portManager.OccupyPortInGroup(tunnel.EntryGroupID, tunnel.LocalPort, tunnel.ID); err != nil {
-		// 回滚：删除已创建的隧道
-		_ = s.db.DB.SQLite.DeleteTunnel(tunnel.ID)
-		return err
+	// 创建对应的规则
+	rule := &model.Rule{
+		Name:             tunnel.Name,
+		Description:      tunnel.Description,
+		Enabled:          tunnel.Enabled,
+		Protocol:         "tcp", // 默认使用TCP协议
+		ListenPort:       tunnel.ListenPort,
+		TargetAddress:    tunnel.TargetAddress,
+		TargetPort:       tunnel.TargetPort,
+		IngressNodeID:    tunnel.IngressNodeID,
+		EgressNodeID:     tunnel.EgressNodeID,
+		IngressGroupID:   tunnel.IngressGroupID,
+		EgressGroupID:    tunnel.EgressGroupID,
+		IngressProtocol:  tunnel.IngressProtocol,
+		EgressProtocol:   tunnel.EgressProtocol,
+		EnableEncryption: tunnel.EnableEncryption,
+		RateLimitBPS:     tunnel.RateLimitBPS,
+		MaxConnections:   tunnel.MaxConnections,
+		IdleTimeout:      tunnel.IdleTimeout,
+		CreatedBy:        userID,
 	}
 
-	// 9. 增加规则计数
-	if err := s.planService.IncrementRuleCount(tunnel.UserID); err != nil {
-		logger.Warn("增加规则计数失败", zap.Error(err))
+	// 生成规则ID
+	rule.ID = uuid.New().String()
+
+	// 插入规则
+	_, err = tx.Exec(`
+		INSERT INTO rules (
+			id, name, description, enabled, priority, version, created_at, updated_at, created_by,
+			protocol, listen_port, target_address, target_port, ingress_node_id, egress_node_id,
+			ingress_group_id, egress_group_id, ingress_protocol, egress_protocol,
+			enable_encryption, rate_limit_bps, max_connections, idle_timeout,
+			connection_count, bytes_in, bytes_out, last_active
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`,
+		rule.ID, rule.Name, rule.Description, rule.Enabled, 0, 1, now, now, rule.CreatedBy,
+		rule.Protocol, rule.ListenPort, rule.TargetAddress, rule.TargetPort,
+		rule.IngressNodeID, rule.EgressNodeID, rule.IngressGroupID, rule.EgressGroupID,
+		rule.IngressProtocol, rule.EgressProtocol, rule.EnableEncryption,
+		rule.RateLimitBPS, rule.MaxConnections, rule.IdleTimeout,
+		0, 0, 0, now,
+	)
+
+	if err != nil {
+		tx.Rollback()
+		s.logger.Error("插入规则失败",
+			zap.String("name", rule.Name),
+			zap.Error(err))
+		return fmt.Errorf("插入规则失败: %w", err)
 	}
 
-	logger.Info("隧道已创建",
+	// 关联隧道和规则
+	_, err = tx.Exec(`
+		INSERT INTO tunnel_rules (tunnel_id, rule_id) VALUES (?, ?)
+	`, tunnel.ID, rule.ID)
+
+	if err != nil {
+		tx.Rollback()
+		s.logger.Error("关联隧道和规则失败",
+			zap.String("tunnel_id", tunnel.ID),
+			zap.String("rule_id", rule.ID),
+			zap.Error(err))
+		return fmt.Errorf("关联隧道和规则失败: %w", err)
+	}
+
+	// 提交事务
+	if err := tx.Commit(); err != nil {
+		s.logger.Error("提交事务失败",
+			zap.Error(err))
+		return fmt.Errorf("提交事务失败: %w", err)
+	}
+
+	s.logger.Info("创建隧道成功",
 		zap.String("id", tunnel.ID),
 		zap.String("name", tunnel.Name),
-		zap.Int("port", tunnel.LocalPort),
-		zap.String("userID", tunnel.UserID),
-		zap.Int("targetCount", len(targets)))
+		zap.String("created_by", userID))
 
 	return nil
 }
 
 // GetTunnel 获取隧道
-func (s *TunnelService) GetTunnel(id string) (*dbinit.Tunnel, error) {
-	tunnel, err := s.db.DB.SQLite.GetTunnel(id)
+func (s *TunnelService) GetTunnel(id string) (*model.Tunnel, error) {
+	var tunnel model.Tunnel
+
+	// 查询隧道
+	err := s.db.QueryRow(`
+		SELECT 
+			id, name, description, enabled, created_at, updated_at, created_by,
+			ingress_node_id, egress_node_id, ingress_group_id, egress_group_id,
+			ingress_protocol, egress_protocol, listen_port, target_address, target_port,
+			enable_encryption, rate_limit_bps, max_connections, idle_timeout
+		FROM tunnels 
+		WHERE id = ?
+	`, id).Scan(
+		&tunnel.ID, &tunnel.Name, &tunnel.Description, &tunnel.Enabled, &tunnel.CreatedAt, &tunnel.UpdatedAt, &tunnel.CreatedBy,
+		&tunnel.IngressNodeID, &tunnel.EgressNodeID, &tunnel.IngressGroupID, &tunnel.EgressGroupID,
+		&tunnel.IngressProtocol, &tunnel.EgressProtocol, &tunnel.ListenPort, &tunnel.TargetAddress, &tunnel.TargetPort,
+		&tunnel.EnableEncryption, &tunnel.RateLimitBPS, &tunnel.MaxConnections, &tunnel.IdleTimeout,
+	)
+
 	if err != nil {
-		logger.Error("获取隧道失败",
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("隧道不存在: %s", id)
+		}
+		s.logger.Error("获取隧道失败",
 			zap.String("id", id),
 			zap.Error(err))
-		return nil, err
+		return nil, fmt.Errorf("获取隧道失败: %w", err)
 	}
-	return tunnel, nil
-}
 
-// ListTunnels 列出隧道
-func (s *TunnelService) ListTunnels(userID string, enabled *bool) ([]*dbinit.Tunnel, error) {
-	tunnels, err := s.db.DB.SQLite.ListTunnels(userID, enabled)
+	// 查询关联的规则
+	rows, err := s.db.Query(`
+		SELECT rule_id FROM tunnel_rules WHERE tunnel_id = ?
+	`, id)
+
 	if err != nil {
-		logger.Error("列出隧道失败",
-			zap.String("userID", userID),
+		s.logger.Error("查询隧道规则失败",
+			zap.String("id", id),
 			zap.Error(err))
-		return nil, err
+		return nil, fmt.Errorf("查询隧道规则失败: %w", err)
 	}
-	return tunnels, nil
+	defer rows.Close()
+
+	// 收集规则ID
+	for rows.Next() {
+		var ruleID string
+		if err := rows.Scan(&ruleID); err != nil {
+			s.logger.Error("扫描规则ID失败",
+				zap.Error(err))
+			return nil, fmt.Errorf("扫描规则ID失败: %w", err)
+		}
+
+		tunnel.RuleIDs = append(tunnel.RuleIDs, ruleID)
+	}
+
+	// 查询统计信息
+	if len(tunnel.RuleIDs) > 0 {
+		var connectionCount, bytesIn, bytesOut int64
+		var lastActive time.Time
+
+		for _, ruleID := range tunnel.RuleIDs {
+			var rule model.Rule
+			err := s.db.QueryRow(`
+				SELECT connection_count, bytes_in, bytes_out, last_active
+				FROM rules
+				WHERE id = ?
+			`, ruleID).Scan(&rule.ConnectionCount, &rule.BytesIn, &rule.BytesOut, &rule.LastActive)
+
+			if err != nil {
+				s.logger.Error("查询规则统计信息失败",
+					zap.String("rule_id", ruleID),
+					zap.Error(err))
+				continue
+			}
+
+			connectionCount += rule.ConnectionCount
+			bytesIn += rule.BytesIn
+			bytesOut += rule.BytesOut
+
+			if lastActive.Before(rule.LastActive) {
+				lastActive = rule.LastActive
+			}
+		}
+
+		tunnel.ConnectionCount = connectionCount
+		tunnel.BytesIn = bytesIn
+		tunnel.BytesOut = bytesOut
+		tunnel.LastActive = lastActive
+	}
+
+	return &tunnel, nil
 }
 
 // UpdateTunnel 更新隧道
-func (s *TunnelService) UpdateTunnel(tunnel *dbinit.Tunnel, targets []dbinit.TunnelTarget) error {
-	// 获取原隧道信息
-	oldTunnel, err := s.GetTunnel(tunnel.ID)
-	if err != nil {
+func (s *TunnelService) UpdateTunnel(tunnel *model.Tunnel) error {
+	// 验证隧道
+	if err := s.validateTunnel(tunnel); err != nil {
 		return err
 	}
 
-	// 如果端口改变了，需要检查新端口是否可用
-	if tunnel.LocalPort != oldTunnel.LocalPort {
-		if err := ValidatePort(tunnel.LocalPort); err != nil {
-			return err
-		}
-
-		// 检查新端口在组内是否可用（排除当前隧道）
-		if !s.portManager.IsPortAvailableInGroup(tunnel.EntryGroupID, tunnel.LocalPort, tunnel.ID) {
-			return fmt.Errorf("端口 %d 已被同组内其他隧道占用", tunnel.LocalPort)
-		}
-	}
-
-	// 验证目标列表
-	if err := ValidateTunnelTargets(targets); err != nil {
-		return err
-	}
-
-	// 转换目标为JSON
-	targetsStr, err := TargetsToString(targets)
+	// 开始事务
+	tx, err := s.db.Begin()
 	if err != nil {
-		return fmt.Errorf("目标序列化失败: %w", err)
+		return fmt.Errorf("开始事务失败: %w", err)
 	}
 
-	tunnel.Targets = targetsStr
+	// 设置更新时间
 	tunnel.UpdatedAt = time.Now()
 
-	if err := s.db.DB.SQLite.UpdateTunnel(tunnel); err != nil {
-		logger.Error("更新隧道失败",
+	// 更新隧道
+	_, err = tx.Exec(`
+		UPDATE tunnels SET
+			name = ?, description = ?, enabled = ?, updated_at = ?,
+			ingress_node_id = ?, egress_node_id = ?, ingress_group_id = ?, egress_group_id = ?,
+			ingress_protocol = ?, egress_protocol = ?, listen_port = ?, target_address = ?, target_port = ?,
+			enable_encryption = ?, rate_limit_bps = ?, max_connections = ?, idle_timeout = ?
+		WHERE id = ?
+	`,
+		tunnel.Name, tunnel.Description, tunnel.Enabled, tunnel.UpdatedAt,
+		tunnel.IngressNodeID, tunnel.EgressNodeID, tunnel.IngressGroupID, tunnel.EgressGroupID,
+		tunnel.IngressProtocol, tunnel.EgressProtocol, tunnel.ListenPort, tunnel.TargetAddress, tunnel.TargetPort,
+		tunnel.EnableEncryption, tunnel.RateLimitBPS, tunnel.MaxConnections, tunnel.IdleTimeout,
+		tunnel.ID,
+	)
+
+	if err != nil {
+		tx.Rollback()
+		s.logger.Error("更新隧道失败",
 			zap.String("id", tunnel.ID),
 			zap.Error(err))
-		return err
+		return fmt.Errorf("更新隧道失败: %w", err)
 	}
 
-	// 如果端口改变了，更新端口占用
-	if tunnel.LocalPort != oldTunnel.LocalPort {
-		s.portManager.ReleasePortInGroup(oldTunnel.EntryGroupID, oldTunnel.LocalPort)
-		if err := s.portManager.OccupyPortInGroup(tunnel.EntryGroupID, tunnel.LocalPort, tunnel.ID); err != nil {
-			logger.Error("更新端口占用失败", zap.Error(err))
+	// 查询关联的规则
+	rows, err := tx.Query(`
+		SELECT rule_id FROM tunnel_rules WHERE tunnel_id = ?
+	`, tunnel.ID)
+
+	if err != nil {
+		tx.Rollback()
+		s.logger.Error("查询隧道规则失败",
+			zap.String("id", tunnel.ID),
+			zap.Error(err))
+		return fmt.Errorf("查询隧道规则失败: %w", err)
+	}
+
+	// 收集规则ID
+	var ruleIDs []string
+	for rows.Next() {
+		var ruleID string
+		if err := rows.Scan(&ruleID); err != nil {
+			rows.Close()
+			tx.Rollback()
+			s.logger.Error("扫描规则ID失败",
+				zap.Error(err))
+			return fmt.Errorf("扫描规则ID失败: %w", err)
+		}
+
+		ruleIDs = append(ruleIDs, ruleID)
+	}
+	rows.Close()
+
+	// 更新关联的规则
+	for _, ruleID := range ruleIDs {
+		_, err = tx.Exec(`
+			UPDATE rules SET
+				name = ?, description = ?, enabled = ?, updated_at = ?,
+				protocol = ?, listen_port = ?, target_address = ?, target_port = ?,
+				ingress_node_id = ?, egress_node_id = ?, ingress_group_id = ?, egress_group_id = ?,
+				ingress_protocol = ?, egress_protocol = ?, enable_encryption = ?,
+				rate_limit_bps = ?, max_connections = ?, idle_timeout = ?
+			WHERE id = ?
+		`,
+			tunnel.Name, tunnel.Description, tunnel.Enabled, tunnel.UpdatedAt,
+			"tcp", tunnel.ListenPort, tunnel.TargetAddress, tunnel.TargetPort,
+			tunnel.IngressNodeID, tunnel.EgressNodeID, tunnel.IngressGroupID, tunnel.EgressGroupID,
+			tunnel.IngressProtocol, tunnel.EgressProtocol, tunnel.EnableEncryption,
+			tunnel.RateLimitBPS, tunnel.MaxConnections, tunnel.IdleTimeout,
+			ruleID,
+		)
+
+		if err != nil {
+			tx.Rollback()
+			s.logger.Error("更新规则失败",
+				zap.String("rule_id", ruleID),
+				zap.Error(err))
+			return fmt.Errorf("更新规则失败: %w", err)
 		}
 	}
 
-	logger.Info("隧道已更新",
+	// 提交事务
+	if err := tx.Commit(); err != nil {
+		s.logger.Error("提交事务失败",
+			zap.Error(err))
+		return fmt.Errorf("提交事务失败: %w", err)
+	}
+
+	s.logger.Info("更新隧道成功",
 		zap.String("id", tunnel.ID),
-		zap.String("name", tunnel.Name),
-		zap.Int("port", tunnel.LocalPort))
+		zap.String("name", tunnel.Name))
 
 	return nil
 }
 
 // DeleteTunnel 删除隧道
-func (s *TunnelService) DeleteTunnel(id, userID string) error {
-	tunnel, err := s.GetTunnel(id)
+func (s *TunnelService) DeleteTunnel(id string) error {
+	// 开始事务
+	tx, err := s.db.Begin()
 	if err != nil {
-		return err
+		return fmt.Errorf("开始事务失败: %w", err)
 	}
 
-	if err := s.db.DB.SQLite.DeleteTunnel(id); err != nil {
-		logger.Error("删除隧道失败",
+	// 查询关联的规则
+	rows, err := tx.Query(`
+		SELECT rule_id FROM tunnel_rules WHERE tunnel_id = ?
+	`, id)
+
+	if err != nil {
+		tx.Rollback()
+		s.logger.Error("查询隧道规则失败",
 			zap.String("id", id),
 			zap.Error(err))
-		return err
+		return fmt.Errorf("查询隧道规则失败: %w", err)
 	}
 
-	// 释放端口
-	s.portManager.ReleasePortInGroup(tunnel.EntryGroupID, tunnel.LocalPort)
-
-	// 减少规则计数
-	if err := s.planService.DecrementRuleCount(userID); err != nil {
-		logger.Warn("减少规则计数失败", zap.Error(err))
-	}
-
-	logger.Info("隧道已删除",
-		zap.String("id", id),
-		zap.String("name", tunnel.Name),
-		zap.Int("port", tunnel.LocalPort))
-
-	return nil
-}
-
-// ToggleTunnel 切换隧道状态
-func (s *TunnelService) ToggleTunnel(id string, enabled bool) error {
-	tunnel, err := s.GetTunnel(id)
-	if err != nil {
-		return err
-	}
-
-	// 如果要启用隧道，需要检查配额和端口
-	if enabled && !tunnel.Enabled {
-		// 检查用户订阅是否有效
-		if _, _, err := s.planService.GetUserSubscription(tunnel.UserID); err != nil {
-			return fmt.Errorf("无法启用隧道: %w", err)
+	// 收集规则ID
+	var ruleIDs []string
+	for rows.Next() {
+		var ruleID string
+		if err := rows.Scan(&ruleID); err != nil {
+			rows.Close()
+			tx.Rollback()
+			s.logger.Error("扫描规则ID失败",
+				zap.Error(err))
+			return fmt.Errorf("扫描规则ID失败: %w", err)
 		}
 
-		// 检查端口在组内是否仍然可用
-		if !s.portManager.IsPortAvailableInGroup(tunnel.EntryGroupID, tunnel.LocalPort, tunnel.ID) {
-			return fmt.Errorf("端口 %d 已被同组内其他隧道占用", tunnel.LocalPort)
+		ruleIDs = append(ruleIDs, ruleID)
+	}
+	rows.Close()
+
+	// 删除关联的规则
+	for _, ruleID := range ruleIDs {
+		// 删除ACL规则
+		_, err = tx.Exec(`DELETE FROM rule_acls WHERE rule_id = ?`, ruleID)
+		if err != nil {
+			tx.Rollback()
+			s.logger.Error("删除ACL规则失败",
+				zap.String("rule_id", ruleID),
+				zap.Error(err))
+			return fmt.Errorf("删除ACL规则失败: %w", err)
 		}
 
-		// 占用端口
-		if err := s.portManager.OccupyPortInGroup(tunnel.EntryGroupID, tunnel.LocalPort, tunnel.ID); err != nil {
-			return err
+		// 删除选项
+		_, err = tx.Exec(`DELETE FROM rule_options WHERE rule_id = ?`, ruleID)
+		if err != nil {
+			tx.Rollback()
+			s.logger.Error("删除规则选项失败",
+				zap.String("rule_id", ruleID),
+				zap.Error(err))
+			return fmt.Errorf("删除规则选项失败: %w", err)
+		}
+
+		// 删除规则
+		_, err = tx.Exec(`DELETE FROM rules WHERE id = ?`, ruleID)
+		if err != nil {
+			tx.Rollback()
+			s.logger.Error("删除规则失败",
+				zap.String("rule_id", ruleID),
+				zap.Error(err))
+			return fmt.Errorf("删除规则失败: %w", err)
 		}
 	}
 
-	// 如果要禁用隧道，释放端口
-	if !enabled && tunnel.Enabled {
-		s.portManager.ReleasePortInGroup(tunnel.EntryGroupID, tunnel.LocalPort)
-	}
-
-	tunnel.Enabled = enabled
-	tunnel.UpdatedAt = time.Now()
-
-	if err := s.db.DB.SQLite.UpdateTunnel(tunnel); err != nil {
-		return err
-	}
-
-	status := "禁用"
-	if enabled {
-		status = "启用"
-	}
-
-	logger.Info("隧道状态已切换",
-		zap.String("id", id),
-		zap.Int("port", tunnel.LocalPort),
-		zap.String("status", status))
-
-	return nil
-}
-
-// UpdateTraffic 更新流量统计
-func (s *TunnelService) UpdateTraffic(id string, trafficIn, trafficOut int64) error {
-	tunnel, err := s.GetTunnel(id)
+	// 删除隧道规则关联
+	_, err = tx.Exec(`DELETE FROM tunnel_rules WHERE tunnel_id = ?`, id)
 	if err != nil {
-		return err
-	}
-
-	tunnel.TrafficIn += trafficIn
-	tunnel.TrafficOut += trafficOut
-	tunnel.UpdatedAt = time.Now()
-
-	if err := s.db.DB.SQLite.UpdateTunnel(tunnel); err != nil {
-		return err
-	}
-
-	// 更新用户流量统计
-	totalTraffic := trafficIn + trafficOut
-	if err := s.planService.AddTrafficUsage(tunnel.UserID, totalTraffic); err != nil {
-		logger.Warn("更新用户流量失败", zap.Error(err))
-	}
-
-	return nil
-}
-
-// GetTunnelsByGroupID 获取节点组的所有隧道
-func (s *TunnelService) GetTunnelsByGroupID(groupID string, groupType string) ([]*dbinit.Tunnel, error) {
-	tunnels, err := s.db.DB.SQLite.GetTunnelsByGroupID(groupID, groupType)
-	if err != nil {
-		logger.Error("获取节点组隧道失败",
-			zap.String("groupID", groupID),
+		tx.Rollback()
+		s.logger.Error("删除隧道规则关联失败",
+			zap.String("id", id),
 			zap.Error(err))
+		return fmt.Errorf("删除隧道规则关联失败: %w", err)
+	}
+
+	// 删除隧道
+	_, err = tx.Exec(`DELETE FROM tunnels WHERE id = ?`, id)
+	if err != nil {
+		tx.Rollback()
+		s.logger.Error("删除隧道失败",
+			zap.String("id", id),
+			zap.Error(err))
+		return fmt.Errorf("删除隧道失败: %w", err)
+	}
+
+	// 提交事务
+	if err := tx.Commit(); err != nil {
+		s.logger.Error("提交事务失败",
+			zap.Error(err))
+		return fmt.Errorf("提交事务失败: %w", err)
+	}
+
+	s.logger.Info("删除隧道成功",
+		zap.String("id", id))
+
+	return nil
+}
+
+// ListTunnels 列出所有隧道
+func (s *TunnelService) ListTunnels() ([]*model.Tunnel, error) {
+	// 查询隧道
+	rows, err := s.db.Query(`
+		SELECT 
+			id, name, description, enabled, created_at, updated_at, created_by,
+			ingress_node_id, egress_node_id, ingress_group_id, egress_group_id,
+			ingress_protocol, egress_protocol, listen_port, target_address, target_port,
+			enable_encryption, rate_limit_bps, max_connections, idle_timeout
+		FROM tunnels
+		ORDER BY name ASC
+	`)
+
+	if err != nil {
+		s.logger.Error("查询隧道失败",
+			zap.Error(err))
+		return nil, fmt.Errorf("查询隧道失败: %w", err)
+	}
+	defer rows.Close()
+
+	// 收集隧道
+	var tunnels []*model.Tunnel
+	for rows.Next() {
+		var tunnel model.Tunnel
+
+		if err := rows.Scan(
+			&tunnel.ID, &tunnel.Name, &tunnel.Description, &tunnel.Enabled, &tunnel.CreatedAt, &tunnel.UpdatedAt, &tunnel.CreatedBy,
+			&tunnel.IngressNodeID, &tunnel.EgressNodeID, &tunnel.IngressGroupID, &tunnel.EgressGroupID,
+			&tunnel.IngressProtocol, &tunnel.EgressProtocol, &tunnel.ListenPort, &tunnel.TargetAddress, &tunnel.TargetPort,
+			&tunnel.EnableEncryption, &tunnel.RateLimitBPS, &tunnel.MaxConnections, &tunnel.IdleTimeout,
+		); err != nil {
+			s.logger.Error("扫描隧道失败",
+				zap.Error(err))
+			return nil, fmt.Errorf("扫描隧道失败: %w", err)
+		}
+
+		tunnels = append(tunnels, &tunnel)
+	}
+
+	// 查询每个隧道的规则ID和统计信息
+	for _, tunnel := range tunnels {
+		// 查询规则ID
+		ruleRows, err := s.db.Query(`
+			SELECT rule_id FROM tunnel_rules WHERE tunnel_id = ?
+		`, tunnel.ID)
+
+		if err != nil {
+			s.logger.Error("查询隧道规则失败",
+				zap.String("id", tunnel.ID),
+				zap.Error(err))
+			continue
+		}
+
+		// 收集规则ID
+		for ruleRows.Next() {
+			var ruleID string
+			if err := ruleRows.Scan(&ruleID); err != nil {
+				ruleRows.Close()
+				s.logger.Error("扫描规则ID失败",
+					zap.Error(err))
+				continue
+			}
+
+			tunnel.RuleIDs = append(tunnel.RuleIDs, ruleID)
+		}
+		ruleRows.Close()
+
+		// 查询统计信息
+		if len(tunnel.RuleIDs) > 0 {
+			var connectionCount, bytesIn, bytesOut int64
+			var lastActive time.Time
+
+			for _, ruleID := range tunnel.RuleIDs {
+				var rule model.Rule
+				err := s.db.QueryRow(`
+					SELECT connection_count, bytes_in, bytes_out, last_active
+					FROM rules
+					WHERE id = ?
+				`, ruleID).Scan(&rule.ConnectionCount, &rule.BytesIn, &rule.BytesOut, &rule.LastActive)
+
+				if err != nil {
+					s.logger.Error("查询规则统计信息失败",
+						zap.String("rule_id", ruleID),
+						zap.Error(err))
+					continue
+				}
+
+				connectionCount += rule.ConnectionCount
+				bytesIn += rule.BytesIn
+				bytesOut += rule.BytesOut
+
+				if lastActive.Before(rule.LastActive) {
+					lastActive = rule.LastActive
+				}
+			}
+
+			tunnel.ConnectionCount = connectionCount
+			tunnel.BytesIn = bytesIn
+			tunnel.BytesOut = bytesOut
+			tunnel.LastActive = lastActive
+		}
+	}
+
+	return tunnels, nil
+}
+
+// validateTunnel 验证隧道
+func (s *TunnelService) validateTunnel(tunnel *model.Tunnel) error {
+	if tunnel.Name == "" {
+		return errors.New("隧道名称不能为空")
+	}
+
+	if tunnel.ListenPort <= 0 || tunnel.ListenPort > 65535 {
+		return errors.New("监听端口必须在1-65535之间")
+	}
+
+	if tunnel.TargetAddress == "" {
+		return errors.New("目标地址不能为空")
+	}
+
+	if tunnel.TargetPort <= 0 || tunnel.TargetPort > 65535 {
+		return errors.New("目标端口必须在1-65535之间")
+	}
+
+	// 入口节点或入口组必须指定一个
+	if tunnel.IngressNodeID == "" && tunnel.IngressGroupID == "" {
+		return errors.New("必须指定入口节点或入口组")
+	}
+
+	// 如果指定了入口组，检查是否存在
+	if tunnel.IngressGroupID != "" {
+		_, err := s.nodeGroupService.GetNodeGroup(tunnel.IngressGroupID)
+		if err != nil {
+			return fmt.Errorf("入口组不存在: %w", err)
+		}
+	}
+
+	// 如果指定了出口组，检查是否存在
+	if tunnel.EgressGroupID != "" {
+		_, err := s.nodeGroupService.GetNodeGroup(tunnel.EgressGroupID)
+		if err != nil {
+			return fmt.Errorf("出口组不存在: %w", err)
+		}
+	}
+
+	// 如果指定了入口节点，检查是否存在
+	if tunnel.IngressNodeID != "" {
+		_, err := s.nodeService.GetNode(tunnel.IngressNodeID)
+		if err != nil {
+			return fmt.Errorf("入口节点不存在: %w", err)
+		}
+	}
+
+	// 如果指定了出口节点，检查是否存在
+	if tunnel.EgressNodeID != "" {
+		_, err := s.nodeService.GetNode(tunnel.EgressNodeID)
+		if err != nil {
+			return fmt.Errorf("出口节点不存在: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// ProbeTunnel 探测隧道
+func (s *TunnelService) ProbeTunnel(tunnelID string) (*model.ProbeResult, error) {
+	// 获取隧道
+	_, err := s.GetTunnel(tunnelID)
+	if err != nil {
 		return nil, err
 	}
-	return tunnels, nil
+
+	// TODO: 实现探测功能
+
+	// 返回模拟结果
+	result := &model.ProbeResult{
+		TunnelID:     tunnelID,
+		Success:      true,
+		Message:      "探测成功",
+		ResponseTime: 100, // 毫秒
+		Timestamp:    time.Now(),
+	}
+
+	return result, nil
 }

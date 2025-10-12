@@ -64,7 +64,7 @@ type GitHubLoginRequest struct {
 // GitHubLoginURL 获取GitHub登录URL
 func (h *OAuthHandler) GitHubLoginURL(c *gin.Context) {
 	if h.githubConfig == nil {
-		response.BadRequest(c, "GitHub OAuth is not enabled")
+		response.GinBadRequest(c, "GitHub OAuth is not enabled")
 		return
 	}
 
@@ -79,7 +79,7 @@ func (h *OAuthHandler) GitHubLoginURL(c *gin.Context) {
 	}
 
 	url := h.githubConfig.AuthCodeURL(state)
-	response.Success(c, gin.H{
+	response.GinSuccess(c, gin.H{
 		"url":   url,
 		"state": state,
 	})
@@ -88,13 +88,13 @@ func (h *OAuthHandler) GitHubLoginURL(c *gin.Context) {
 // GitHubCallback GitHub回调处理
 func (h *OAuthHandler) GitHubCallback(c *gin.Context) {
 	if h.githubConfig == nil {
-		response.BadRequest(c, "GitHub OAuth is not enabled")
+		response.GinBadRequest(c, "GitHub OAuth is not enabled")
 		return
 	}
 
 	var req GitHubLoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.GinBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
@@ -103,7 +103,7 @@ func (h *OAuthHandler) GitHubCallback(c *gin.Context) {
 		stateKey := "oauth:state:" + req.State
 		val, _ := h.app.DB.Cache.Redis.GetString(stateKey)
 		if val != "pending" {
-			response.BadRequest(c, "Invalid state parameter")
+			response.GinBadRequest(c, "Invalid state parameter")
 			return
 		}
 		// 删除已使用的state
@@ -114,7 +114,7 @@ func (h *OAuthHandler) GitHubCallback(c *gin.Context) {
 	ctx := context.Background()
 	token, err := h.githubConfig.Exchange(ctx, req.Code)
 	if err != nil {
-		response.BadRequest(c, "Failed to exchange token: "+err.Error())
+		response.GinBadRequest(c, "Failed to exchange token: "+err.Error())
 		return
 	}
 
@@ -209,7 +209,7 @@ func (h *OAuthHandler) GitHubCallback(c *gin.Context) {
 	// 计算过期时间
 	expiresAt := time.Now().Add(time.Duration(h.app.Config.Auth.JWTExpiration) * time.Hour)
 
-	response.Success(c, gin.H{
+	response.GinSuccess(c, gin.H{
 		"token":      jwtToken,
 		"user_id":    user.ID,
 		"username":   user.Username,

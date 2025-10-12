@@ -14,7 +14,8 @@ type Manager struct {
 // NewManager 创建隧道管理器
 func NewManager(dbManager *db.Manager) *Manager {
 	planService := service.NewPlanService(dbManager)
-	tunnelService := service.NewTunnelService(dbManager, planService)
+	// TODO: Pass correct services when available
+	tunnelService := service.NewTunnelService(nil, nil, nil, nil)
 
 	return &Manager{
 		tunnelService: tunnelService,
@@ -31,4 +32,3 @@ func (m *Manager) GetTunnelService() *service.TunnelService {
 func (m *Manager) GetPlanService() *service.PlanService {
 	return m.planService
 }
-

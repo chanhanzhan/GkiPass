@@ -25,7 +25,7 @@ func QuotaCheck(dbManager *db.Manager) gin.HandlerFunc {
 		// 获取用户ID
 		userID, exists := c.Get("user_id")
 		if !exists {
-			response.Unauthorized(c, "User not authenticated")
+			response.GinUnauthorized(c, "User not authenticated")
 			c.Abort()
 			return
 		}
@@ -61,7 +61,7 @@ func RuleQuotaCheck(dbManager *db.Manager) gin.HandlerFunc {
 		// 获取用户ID
 		userID, exists := c.Get("user_id")
 		if !exists {
-			response.Unauthorized(c, "User not authenticated")
+			response.GinUnauthorized(c, "User not authenticated")
 			c.Abort()
 			return
 		}
@@ -76,7 +76,7 @@ func RuleQuotaCheck(dbManager *db.Manager) gin.HandlerFunc {
 
 		// 无订阅时禁止创建
 		if sub == nil || plan == nil {
-			response.Forbidden(c, "No active subscription. Please subscribe to a plan to create tunnels.")
+			response.GinForbidden(c, "No active subscription. Please subscribe to a plan to create tunnels.")
 			c.Abort()
 			return
 		}
@@ -86,7 +86,7 @@ func RuleQuotaCheck(dbManager *db.Manager) gin.HandlerFunc {
 			logger.Warn("规则配额不足",
 				zap.String("userID", userID.(string)),
 				zap.Error(err))
-			response.Forbidden(c, err.Error())
+			response.GinForbidden(c, err.Error())
 			c.Abort()
 			return
 		}
@@ -119,7 +119,7 @@ func TrafficQuotaCheck(dbManager *db.Manager) gin.HandlerFunc {
 			logger.Warn("流量配额不足",
 				zap.String("userID", userID.(string)),
 				zap.Error(err))
-			response.Forbidden(c, err.Error())
+			response.GinForbidden(c, err.Error())
 			c.Abort()
 			return
 		}

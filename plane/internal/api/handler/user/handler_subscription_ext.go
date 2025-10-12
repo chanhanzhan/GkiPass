@@ -39,14 +39,14 @@ func (h *SubscriptionHandler) GetCurrentSubscription(c *gin.Context) {
 	}
 
 	if subscription == nil {
-		response.Success(c, nil)
+		response.GinSuccess(c, nil)
 		return
 	}
 
 	// 获取套餐信息
 	plan, err := h.app.DB.DB.SQLite.GetPlan(subscription.PlanID)
 	if err == nil && plan != nil {
-		response.Success(c, gin.H{
+		response.GinSuccess(c, gin.H{
 			"id":            subscription.ID,
 			"user_id":       subscription.UserID,
 			"plan_id":       subscription.PlanID,
@@ -64,7 +64,7 @@ func (h *SubscriptionHandler) GetCurrentSubscription(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, subscription)
+	response.GinSuccess(c, subscription)
 }
 
 // ListSubscriptions 列出所有订阅（管理员）
@@ -93,7 +93,7 @@ func (h *SubscriptionHandler) ListSubscriptions(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, gin.H{
+	response.GinSuccess(c, gin.H{
 		"data":  subscriptions,
 		"total": total,
 		"page":  page,

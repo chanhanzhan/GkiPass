@@ -148,3 +148,17 @@ func (as *AlertSystem) sendTelegram(alert Alert) error {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+

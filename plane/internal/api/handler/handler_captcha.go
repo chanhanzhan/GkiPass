@@ -34,7 +34,7 @@ type CaptchaResponse struct {
 func (h *CaptchaHandler) GenerateImageCaptcha(c *gin.Context) {
 	// 检查是否启用验证码
 	if !h.app.Config.Captcha.Enabled {
-		response.BadRequest(c, "Captcha is disabled")
+		response.GinBadRequest(c, "Captcha is disabled")
 		return
 	}
 
@@ -75,7 +75,7 @@ func (h *CaptchaHandler) GenerateImageCaptcha(c *gin.Context) {
 		}
 	}
 
-	response.Success(c, CaptchaResponse{
+	response.GinSuccess(c, CaptchaResponse{
 		CaptchaID: captchaID,
 		ImageData: imageData,
 	})
@@ -91,17 +91,17 @@ type VerifyCaptchaRequest struct {
 func (h *CaptchaHandler) VerifyCaptcha(c *gin.Context) {
 	var req VerifyCaptchaRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.GinBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
 	if !h.app.Config.Captcha.Enabled {
-		response.Success(c, gin.H{"valid": true})
+		response.GinSuccess(c, gin.H{"valid": true})
 		return
 	}
 
 	if !h.app.DB.HasCache() {
-		response.BadRequest(c, "Captcha verification unavailable")
+		response.GinBadRequest(c, "Captcha verification unavailable")
 		return
 	}
 
@@ -111,12 +111,12 @@ func (h *CaptchaHandler) VerifyCaptcha(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, gin.H{"valid": valid})
+	response.GinSuccess(c, gin.H{"valid": valid})
 }
 
 // GetCaptchaConfig 获取验证码配置（公开接口）
 func (h *CaptchaHandler) GetCaptchaConfig(c *gin.Context) {
-	response.Success(c, gin.H{
+	response.GinSuccess(c, gin.H{
 		"enabled":            h.app.Config.Captcha.Enabled,
 		"type":               h.app.Config.Captcha.Type,
 		"enable_login":       h.app.Config.Captcha.EnableLogin,

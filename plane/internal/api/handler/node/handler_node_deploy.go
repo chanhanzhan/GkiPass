@@ -55,14 +55,14 @@ func (h *NodeDeployHandler) CreateNode(c *gin.Context) {
 
 	var req DeployNodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.GinBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
 	// 验证节点组是否存在
 	group, err := h.app.DB.DB.SQLite.GetNodeGroup(groupID)
 	if err != nil || group == nil {
-		response.NotFound(c, "Node group not found")
+		response.GinNotFound(c, "Node group not found")
 		return
 	}
 
@@ -70,7 +70,7 @@ func (h *NodeDeployHandler) CreateNode(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	role, _ := c.Get("role")
 	if role != "admin" && group.UserID != userID.(string) {
-		response.Forbidden(c, "No permission to deploy nodes in this group")
+		response.GinForbidden(c, "No permission to deploy nodes in this group")
 		return
 	}
 
@@ -139,26 +139,26 @@ type RegisterNodeRequest struct {
 func (h *NodeDeployHandler) RegisterNode(c *gin.Context) {
 	var req RegisterNodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.GinBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
 	// 获取节点
 	node, err := h.app.DB.DB.SQLite.GetNode(req.NodeID)
 	if err != nil || node == nil {
-		response.NotFound(c, "Node not found")
+		response.GinNotFound(c, "Node not found")
 		return
 	}
 
 	// 验证部署Token
 	if node.APIKey != req.DeploymentToken {
-		response.Unauthorized(c, "Invalid deployment token")
+		response.GinUnauthorized(c, "Invalid deployment token")
 		return
 	}
 
 	// 检查节点状态
 	if node.Status != "pending" {
-		response.BadRequest(c, "Node already registered")
+		response.GinBadRequest(c, "Node already registered")
 		return
 	}
 
@@ -218,14 +218,14 @@ func (h *NodeDeployHandler) NodeHeartbeat(c *gin.Context) {
 
 	var req NodeHeartbeatRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.GinBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
 	// 获取节点
 	node, err := h.app.DB.DB.SQLite.GetNode(nodeID)
 	if err != nil || node == nil {
-		response.NotFound(c, "Node not found")
+		response.GinNotFound(c, "Node not found")
 		return
 	}
 
@@ -248,7 +248,7 @@ func (h *NodeDeployHandler) NodeHeartbeat(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, gin.H{
+	response.GinSuccess(c, gin.H{
 		"status":    "ok",
 		"timestamp": now,
 	})
@@ -261,7 +261,7 @@ func (h *NodeDeployHandler) ListNodesInGroup(c *gin.Context) {
 	// 验证节点组是否存在
 	group, err := h.app.DB.DB.SQLite.GetNodeGroup(groupID)
 	if err != nil || group == nil {
-		response.NotFound(c, "Node group not found")
+		response.GinNotFound(c, "Node group not found")
 		return
 	}
 
@@ -269,7 +269,7 @@ func (h *NodeDeployHandler) ListNodesInGroup(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	role, _ := c.Get("role")
 	if role != "admin" && group.UserID != userID.(string) {
-		response.Forbidden(c, "No permission to view nodes in this group")
+		response.GinForbidden(c, "No permission to view nodes in this group")
 		return
 	}
 
@@ -299,7 +299,7 @@ func (h *NodeDeployHandler) ListNodesInGroup(c *gin.Context) {
 		}
 	}
 
-	response.Success(c, gin.H{
+	response.GinSuccess(c, gin.H{
 		"data":    nodes,
 		"total":   len(nodes),
 		"pending": pending,

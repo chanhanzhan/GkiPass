@@ -70,7 +70,7 @@ func (h *NodeStatusHandler) GetNodeStatus(c *gin.Context) {
 	// 获取节点信息
 	node, err := h.app.DB.DB.SQLite.GetNode(nodeID)
 	if err != nil || node == nil {
-		response.NotFound(c, "Node not found")
+		response.GinNotFound(c, "Node not found")
 		return
 	}
 
@@ -133,7 +133,7 @@ func (h *NodeStatusHandler) GetNodeStatus(c *gin.Context) {
 		UpdatedAt: node.UpdatedAt,
 	}
 
-	response.Success(c, statusResponse)
+	response.GinSuccess(c, statusResponse)
 }
 
 // ListNodesStatus 列出所有节点状态
@@ -185,7 +185,7 @@ func (h *NodeStatusHandler) ListNodesStatus(c *gin.Context) {
 		})
 	}
 
-	response.Success(c, gin.H{
+	response.GinSuccess(c, gin.H{
 		"nodes": statusList,
 		"total": len(statusList),
 	})
@@ -252,7 +252,7 @@ func (h *NodeStatusHandler) GetNodesByGroup(c *gin.Context) {
 	// 获取组信息
 	group, err := h.app.DB.DB.SQLite.GetNodeGroup(groupID)
 	if err != nil || group == nil {
-		response.NotFound(c, "Node group not found")
+		response.GinNotFound(c, "Node group not found")
 		return
 	}
 
@@ -294,7 +294,7 @@ func (h *NodeStatusHandler) GetNodesByGroup(c *gin.Context) {
 		})
 	}
 
-	response.Success(c, gin.H{
+	response.GinSuccess(c, gin.H{
 		"group": gin.H{
 			"id":   group.ID,
 			"name": group.Name,

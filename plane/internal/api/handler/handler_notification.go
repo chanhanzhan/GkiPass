@@ -34,7 +34,7 @@ func (h *NotificationHandler) List(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, gin.H{
+	response.GinSuccess(c, gin.H{
 		"data":        notifications,
 		"total":       total,
 		"page":        page,
@@ -93,7 +93,7 @@ type CreateNotificationRequest struct {
 func (h *NotificationHandler) Create(c *gin.Context) {
 	var req CreateNotificationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.GinBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 

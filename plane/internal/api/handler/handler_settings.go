@@ -26,7 +26,7 @@ func NewSettingsHandler(app *types.App) *SettingsHandler {
 func (h *SettingsHandler) GetCaptchaSettings(c *gin.Context) {
 	// 如果数据库未初始化或表不存在，直接返回配置文件中的设置
 	if h.app.DB == nil || h.app.DB.DB == nil || h.app.DB.DB.SQLite == nil {
-		response.Success(c, h.app.Config.Captcha)
+		response.GinSuccess(c, h.app.Config.Captcha)
 		return
 	}
 
@@ -34,24 +34,24 @@ func (h *SettingsHandler) GetCaptchaSettings(c *gin.Context) {
 	if err != nil {
 		// 如果出错（例如表不存在），记录日志并返回默认配置
 		logger.Warn("Failed to get captcha settings from database, using config defaults", zap.Error(err))
-		response.Success(c, h.app.Config.Captcha)
+		response.GinSuccess(c, h.app.Config.Captcha)
 		return
 	}
 
 	if setting == nil {
 		// 返回默认设置
-		response.Success(c, h.app.Config.Captcha)
+		response.GinSuccess(c, h.app.Config.Captcha)
 		return
 	}
 
 	var captchaSettings dbinit.CaptchaSettings
 	if err := json.Unmarshal([]byte(setting.Value), &captchaSettings); err != nil {
 		logger.Error("Failed to parse captcha settings", zap.Error(err))
-		response.Success(c, h.app.Config.Captcha)
+		response.GinSuccess(c, h.app.Config.Captcha)
 		return
 	}
 
-	response.Success(c, captchaSettings)
+	response.GinSuccess(c, captchaSettings)
 }
 
 // UpdateCaptchaSettingsRequest 更新验证码设置请求
@@ -72,7 +72,7 @@ type UpdateCaptchaSettingsRequest struct {
 func (h *SettingsHandler) UpdateCaptchaSettings(c *gin.Context) {
 	var req UpdateCaptchaSettingsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.GinBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
@@ -136,30 +136,30 @@ func (h *SettingsHandler) GetGeneralSettings(c *gin.Context) {
 	}
 
 	if h.app.DB == nil || h.app.DB.DB == nil || h.app.DB.DB.SQLite == nil {
-		response.Success(c, defaultSettings)
+		response.GinSuccess(c, defaultSettings)
 		return
 	}
 
 	setting, err := h.app.DB.DB.SQLite.GetSystemSetting("general")
 	if err != nil {
 		logger.Warn("Failed to get general settings from database, using defaults", zap.Error(err))
-		response.Success(c, defaultSettings)
+		response.GinSuccess(c, defaultSettings)
 		return
 	}
 
 	if setting == nil {
-		response.Success(c, defaultSettings)
+		response.GinSuccess(c, defaultSettings)
 		return
 	}
 
 	var generalSettings GeneralSettings
 	if err := json.Unmarshal([]byte(setting.Value), &generalSettings); err != nil {
 		logger.Error("Failed to parse general settings", zap.Error(err))
-		response.Success(c, defaultSettings)
+		response.GinSuccess(c, defaultSettings)
 		return
 	}
 
-	response.Success(c, generalSettings)
+	response.GinSuccess(c, generalSettings)
 }
 
 // UpdateGeneralSettingsRequest 更新通用设置请求
@@ -175,7 +175,7 @@ type UpdateGeneralSettingsRequest struct {
 func (h *SettingsHandler) UpdateGeneralSettings(c *gin.Context) {
 	var req UpdateGeneralSettingsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.GinBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
@@ -239,37 +239,37 @@ func (h *SettingsHandler) GetSecuritySettings(c *gin.Context) {
 	}
 
 	if h.app.DB == nil || h.app.DB.DB == nil || h.app.DB.DB.SQLite == nil {
-		response.Success(c, defaultSettings)
+		response.GinSuccess(c, defaultSettings)
 		return
 	}
 
 	setting, err := h.app.DB.DB.SQLite.GetSystemSetting("security")
 	if err != nil {
 		logger.Warn("Failed to get security settings from database, using defaults", zap.Error(err))
-		response.Success(c, defaultSettings)
+		response.GinSuccess(c, defaultSettings)
 		return
 	}
 
 	if setting == nil {
-		response.Success(c, defaultSettings)
+		response.GinSuccess(c, defaultSettings)
 		return
 	}
 
 	var securitySettings SecuritySettings
 	if err := json.Unmarshal([]byte(setting.Value), &securitySettings); err != nil {
 		logger.Error("Failed to parse security settings", zap.Error(err))
-		response.Success(c, defaultSettings)
+		response.GinSuccess(c, defaultSettings)
 		return
 	}
 
-	response.Success(c, securitySettings)
+	response.GinSuccess(c, securitySettings)
 }
 
 // UpdateSecuritySettings 更新安全设置
 func (h *SettingsHandler) UpdateSecuritySettings(c *gin.Context) {
 	var req SecuritySettings
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.GinBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
@@ -331,48 +331,48 @@ func (h *SettingsHandler) GetNotificationSettings(c *gin.Context) {
 	}
 
 	if h.app.DB == nil || h.app.DB.DB == nil || h.app.DB.DB.SQLite == nil {
-		response.Success(c, defaultSettings)
+		response.GinSuccess(c, defaultSettings)
 		return
 	}
 
 	setting, err := h.app.DB.DB.SQLite.GetSystemSetting("notification")
 	if err != nil {
 		logger.Warn("Failed to get notification settings from database, using defaults", zap.Error(err))
-		response.Success(c, defaultSettings)
+		response.GinSuccess(c, defaultSettings)
 		return
 	}
 
 	if setting == nil {
-		response.Success(c, defaultSettings)
+		response.GinSuccess(c, defaultSettings)
 		return
 	}
 
 	var notificationSettings NotificationSettings
 	if err := json.Unmarshal([]byte(setting.Value), &notificationSettings); err != nil {
 		logger.Error("Failed to parse notification settings", zap.Error(err))
-		response.Success(c, defaultSettings)
+		response.GinSuccess(c, defaultSettings)
 		return
 	}
 
-	response.Success(c, notificationSettings)
+	response.GinSuccess(c, notificationSettings)
 }
 
 // UpdateNotificationSettings 更新通知设置
 func (h *SettingsHandler) UpdateNotificationSettings(c *gin.Context) {
 	var req NotificationSettings
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.GinBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
 	// 验证邮件设置
 	if req.EmailEnabled {
 		if req.EmailHost == "" || req.EmailFrom == "" {
-			response.BadRequest(c, "Email host and from address are required when email is enabled")
+			response.GinBadRequest(c, "Email host and from address are required when email is enabled")
 			return
 		}
 		if req.EmailPort < 1 || req.EmailPort > 65535 {
-			response.BadRequest(c, "Invalid email port")
+			response.GinBadRequest(c, "Invalid email port")
 			return
 		}
 	}

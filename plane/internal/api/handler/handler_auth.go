@@ -44,14 +44,14 @@ type LoginResponse struct {
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.GinBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
 	// 验证码检查（如果启用）
 	if h.app.Config.Captcha.Enabled && h.app.Config.Captcha.EnableLogin {
 		if req.CaptchaID == "" || req.CaptchaCode == "" {
-			response.BadRequest(c, "Captcha required")
+			response.GinBadRequest(c, "Captcha required")
 			return
 		}
 
@@ -59,7 +59,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		if h.app.DB.HasCache() {
 			valid, err := h.app.DB.Cache.Redis.VerifyAndDeleteCaptcha(req.CaptchaID, req.CaptchaCode)
 			if err != nil || !valid {
-				response.BadRequest(c, "Invalid or expired captcha code")
+				response.GinBadRequest(c, "Invalid or expired captcha code")
 				return
 			}
 		}
@@ -76,19 +76,19 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 
 	if user == nil {
-		response.Unauthorized(c, "Invalid username or password")
+		response.GinUnauthorized(c, "Invalid username or password")
 		return
 	}
 
 	// 检查用户是否启用
 	if !user.Enabled {
-		response.Forbidden(c, "User account is disabled")
+		response.GinForbidden(c, "User account is disabled")
 		return
 	}
 
 	// 验证密码
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
-		response.Unauthorized(c, "Invalid username or password")
+		response.GinUnauthorized(c, "Invalid username or password")
 		return
 	}
 
@@ -111,7 +111,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	// 计算过期时间
 	expiresAt := time.Now().Add(time.Duration(h.app.Config.Auth.JWTExpiration) * time.Hour)
 
-	response.Success(c, LoginResponse{
+	response.GinSuccess(c, LoginResponse{
 		Token:     token,
 		UserID:    user.ID,
 		Username:  user.Username,

@@ -37,13 +37,13 @@ func (h *MonitoringHandler) ReportNodeMonitoringData(c *gin.Context) {
 
 	var data service.NodeMonitoringReportData
 	if err := c.ShouldBindJSON(&data); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.GinBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
 	// 验证节点权限（通过CK或API Key）
 	if !h.validateNodeAccess(c, nodeID) {
-		response.Unauthorized(c, "Invalid node credentials")
+		response.GinUnauthorized(c, "Invalid node credentials")
 		return
 	}
 
@@ -56,7 +56,7 @@ func (h *MonitoringHandler) ReportNodeMonitoringData(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, gin.H{
+	response.GinSuccess(c, gin.H{
 		"status":    "success",
 		"timestamp": time.Now(),
 		"message":   "Monitoring data received",
@@ -70,7 +70,7 @@ func (h *MonitoringHandler) GetNodeMonitoringStatus(c *gin.Context) {
 
 	// 权限检查
 	if !h.monitoringService.CheckMonitoringPermission(userID.(string), nodeID, "view_basic") {
-		response.Forbidden(c, "No permission to view monitoring data")
+		response.GinForbidden(c, "No permission to view monitoring data")
 		return
 	}
 
@@ -80,7 +80,7 @@ func (h *MonitoringHandler) GetNodeMonitoringStatus(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, status)
+	response.GinSuccess(c, status)
 }
 
 // GetNodeMonitoringData 获取节点详细监控数据
@@ -90,7 +90,7 @@ func (h *MonitoringHandler) GetNodeMonitoringData(c *gin.Context) {
 
 	// 权限检查
 	if !h.monitoringService.CheckMonitoringPermission(userID.(string), nodeID, "view_detailed") {
-		response.Forbidden(c, "No permission to view detailed monitoring data")
+		response.GinForbidden(c, "No permission to view detailed monitoring data")
 		return
 	}
 
@@ -101,13 +101,13 @@ func (h *MonitoringHandler) GetNodeMonitoringData(c *gin.Context) {
 
 	from, err := time.Parse(time.RFC3339, fromStr)
 	if err != nil {
-		response.BadRequest(c, "Invalid from time format")
+		response.GinBadRequest(c, "Invalid from time format")
 		return
 	}
 
 	to, err := time.Parse(time.RFC3339, toStr)
 	if err != nil {
-		response.BadRequest(c, "Invalid to time format")
+		response.GinBadRequest(c, "Invalid to time format")
 		return
 	}
 
@@ -123,7 +123,7 @@ func (h *MonitoringHandler) GetNodeMonitoringData(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, gin.H{
+	response.GinSuccess(c, gin.H{
 		"node_id":    nodeID,
 		"from":       from,
 		"to":         to,
@@ -139,7 +139,7 @@ func (h *MonitoringHandler) GetNodePerformanceHistory(c *gin.Context) {
 
 	// 权限检查
 	if !h.monitoringService.CheckMonitoringPermission(userID.(string), nodeID, "view_detailed") {
-		response.Forbidden(c, "No permission to view performance history")
+		response.GinForbidden(c, "No permission to view performance history")
 		return
 	}
 
@@ -150,13 +150,13 @@ func (h *MonitoringHandler) GetNodePerformanceHistory(c *gin.Context) {
 
 	from, err := time.Parse("2006-01-02", fromStr)
 	if err != nil {
-		response.BadRequest(c, "Invalid from date format")
+		response.GinBadRequest(c, "Invalid from date format")
 		return
 	}
 
 	to, err := time.Parse("2006-01-02", toStr)
 	if err != nil {
-		response.BadRequest(c, "Invalid to date format")
+		response.GinBadRequest(c, "Invalid to date format")
 		return
 	}
 
@@ -167,7 +167,7 @@ func (h *MonitoringHandler) GetNodePerformanceHistory(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, gin.H{
+	response.GinSuccess(c, gin.H{
 		"node_id":          nodeID,
 		"aggregation_type": aggregationType,
 		"from":             from,
@@ -186,12 +186,12 @@ func (h *MonitoringHandler) GetNodeMonitoringConfig(c *gin.Context) {
 	// 权限检查 - 只有管理员和节点所有者可以查看配置
 	node, err := h.app.DB.DB.SQLite.GetNode(nodeID)
 	if err != nil || node == nil {
-		response.NotFound(c, "Node not found")
+		response.GinNotFound(c, "Node not found")
 		return
 	}
 
 	if role != "admin" && node.UserID != userID.(string) {
-		response.Forbidden(c, "No permission to view monitoring config")
+		response.GinForbidden(c, "No permission to view monitoring config")
 		return
 	}
 
@@ -218,7 +218,7 @@ func (h *MonitoringHandler) GetNodeMonitoringConfig(c *gin.Context) {
 		}
 	}
 
-	response.Success(c, config)
+	response.GinSuccess(c, config)
 }
 
 // UpdateNodeMonitoringConfig 更新节点监控配置
@@ -229,13 +229,13 @@ func (h *MonitoringHandler) UpdateNodeMonitoringConfig(c *gin.Context) {
 
 	// 权限检查 - 只有管理员可以更新配置
 	if role != "admin" {
-		response.Forbidden(c, "Only admin can update monitoring config")
+		response.GinForbidden(c, "Only admin can update monitoring config")
 		return
 	}
 
 	var req dbinit.NodeMonitoringConfig
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.GinBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
@@ -324,7 +324,7 @@ func (h *MonitoringHandler) ListNodeMonitoringOverview(c *gin.Context) {
 		overview = append(overview, nodeInfo)
 	}
 
-	response.Success(c, gin.H{
+	response.GinSuccess(c, gin.H{
 		"summary": gin.H{
 			"total_nodes":   totalNodes,
 			"online_nodes":  onlineCount,
@@ -342,7 +342,7 @@ func (h *MonitoringHandler) GetNodeAlerts(c *gin.Context) {
 
 	// 权限检查
 	if !h.monitoringService.CheckMonitoringPermission(userID.(string), nodeID, "view_basic") {
-		response.Forbidden(c, "No permission to view alerts")
+		response.GinForbidden(c, "No permission to view alerts")
 		return
 	}
 
@@ -359,7 +359,7 @@ func (h *MonitoringHandler) GetNodeAlerts(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, gin.H{
+	response.GinSuccess(c, gin.H{
 		"node_id": nodeID,
 		"alerts":  alerts,
 		"total":   len(alerts),
@@ -379,7 +379,7 @@ func (h *MonitoringHandler) CreateMonitoringPermission(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.GinBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
@@ -389,7 +389,7 @@ func (h *MonitoringHandler) CreateMonitoringPermission(c *gin.Context) {
 		"view_system": true, "view_network": true, "disabled": true,
 	}
 	if !validTypes[req.PermissionType] {
-		response.BadRequest(c, "Invalid permission type")
+		response.GinBadRequest(c, "Invalid permission type")
 		return
 	}
 
@@ -397,7 +397,7 @@ func (h *MonitoringHandler) CreateMonitoringPermission(c *gin.Context) {
 	if req.NodeID != "" {
 		node, err := h.app.DB.DB.SQLite.GetNode(req.NodeID)
 		if err != nil || node == nil {
-			response.NotFound(c, "Node not found")
+			response.GinNotFound(c, "Node not found")
 			return
 		}
 	}
@@ -405,7 +405,7 @@ func (h *MonitoringHandler) CreateMonitoringPermission(c *gin.Context) {
 	// 验证目标用户是否存在
 	targetUser, err := h.app.DB.DB.SQLite.GetUser(req.TargetUserID)
 	if err != nil || targetUser == nil {
-		response.NotFound(c, "Target user not found")
+		response.GinNotFound(c, "Target user not found")
 		return
 	}
 
@@ -475,7 +475,7 @@ func (h *MonitoringHandler) ListMonitoringPermissions(c *gin.Context) {
 		permissionsWithInfo = append(permissionsWithInfo, permInfo)
 	}
 
-	response.Success(c, gin.H{
+	response.GinSuccess(c, gin.H{
 		"permissions": permissionsWithInfo,
 		"total":       len(permissionsWithInfo),
 	})
@@ -491,7 +491,7 @@ func (h *MonitoringHandler) GetMyMonitoringPermissions(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, gin.H{
+	response.GinSuccess(c, gin.H{
 		"permissions": permissions,
 		"total":       len(permissions),
 	})
@@ -590,6 +590,7 @@ func (h *MonitoringHandler) NodeMonitoringSummary(c *gin.Context) {
 		summary.AvgMemoryUsage = totalMemory / float64(monitoredCount)
 	}
 
-	response.Success(c, summary)
+	response.GinSuccess(c, summary)
 }
+
 

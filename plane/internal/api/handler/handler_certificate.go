@@ -41,7 +41,7 @@ type GenerateCARequest struct {
 func (h *CertificateHandler) GenerateCA(c *gin.Context) {
 	var req GenerateCARequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.GinBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
@@ -125,7 +125,7 @@ type GenerateLeafRequest struct {
 func (h *CertificateHandler) GenerateLeaf(c *gin.Context) {
 	var req GenerateLeafRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.GinBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
@@ -136,7 +136,7 @@ func (h *CertificateHandler) GenerateLeaf(c *gin.Context) {
 	// 获取父证书(CA)
 	parentCert, err := h.app.DB.DB.SQLite.GetCertificate(req.ParentID)
 	if err != nil || parentCert == nil {
-		response.BadRequest(c, "Parent CA certificate not found")
+		response.GinBadRequest(c, "Parent CA certificate not found")
 		return
 	}
 
@@ -223,7 +223,7 @@ func (h *CertificateHandler) List(c *gin.Context) {
 		cert.PrivateKey = "[HIDDEN]"
 	}
 
-	response.Success(c, gin.H{
+	response.GinSuccess(c, gin.H{
 		"certificates": certs,
 		"total":        len(certs),
 	})
@@ -241,7 +241,7 @@ func (h *CertificateHandler) Get(c *gin.Context) {
 	}
 
 	if cert == nil {
-		response.NotFound(c, "Certificate not found")
+		response.GinNotFound(c, "Certificate not found")
 		return
 	}
 
@@ -250,7 +250,7 @@ func (h *CertificateHandler) Get(c *gin.Context) {
 		cert.PrivateKey = "[HIDDEN]"
 	}
 
-	response.Success(c, cert)
+	response.GinSuccess(c, cert)
 }
 
 // Revoke 吊销证书
@@ -272,7 +272,7 @@ func (h *CertificateHandler) Download(c *gin.Context) {
 
 	cert, err := h.app.DB.DB.SQLite.GetCertificate(id)
 	if err != nil || cert == nil {
-		response.NotFound(c, "Certificate not found")
+		response.GinNotFound(c, "Certificate not found")
 		return
 	}
 

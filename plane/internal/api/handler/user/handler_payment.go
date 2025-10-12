@@ -34,7 +34,7 @@ type CreateRechargeOrderRequest struct {
 func (h *PaymentHandler) CreateRechargeOrder(c *gin.Context) {
 	var req CreateRechargeOrderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.GinBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
@@ -49,14 +49,14 @@ func (h *PaymentHandler) CreateRechargeOrder(c *gin.Context) {
 		"manual": false, // 手动充值仅管理员可用
 	}
 	if !validMethods[req.PaymentMethod] {
-		response.BadRequest(c, "Invalid payment method")
+		response.GinBadRequest(c, "Invalid payment method")
 		return
 	}
 
 	// 获取用户钱包
 	wallet, err := h.app.DB.DB.SQLite.GetWalletByUserID(userID.(string))
 	if err != nil || wallet == nil {
-		response.BadRequest(c, "Wallet not found")
+		response.GinBadRequest(c, "Wallet not found")
 		return
 	}
 
@@ -100,7 +100,7 @@ func (h *PaymentHandler) CreateRechargeOrder(c *gin.Context) {
 		zap.Float64("amount", req.Amount),
 		zap.String("method", req.PaymentMethod))
 
-	response.Success(c, gin.H{
+	response.GinSuccess(c, gin.H{
 		"order_id":       orderID,
 		"amount":         req.Amount,
 		"payment_method": req.PaymentMethod,
@@ -126,11 +126,11 @@ func (h *PaymentHandler) QueryOrderStatus(c *gin.Context) {
 		&transaction.Description, &transaction.CreatedAt,
 	)
 	if err != nil {
-		response.NotFound(c, "Order not found")
+		response.GinNotFound(c, "Order not found")
 		return
 	}
 
-	response.Success(c, transaction)
+	response.GinSuccess(c, transaction)
 }
 
 // PaymentCallback 支付回调
@@ -144,13 +144,13 @@ func (h *PaymentHandler) PaymentCallback(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.GinBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
 	// 验证签名
 	if !h.verifyPaymentSign(req.OrderID, req.PaymentMethod, req.Amount, req.TransactionID, req.Sign) {
-		response.BadRequest(c, "Invalid signature")
+		response.GinBadRequest(c, "Invalid signature")
 		return
 	}
 
@@ -165,13 +165,13 @@ func (h *PaymentHandler) PaymentCallback(c *gin.Context) {
 		&transaction.Description, &transaction.CreatedAt,
 	)
 	if err != nil {
-		response.NotFound(c, "Order not found")
+		response.GinNotFound(c, "Order not found")
 		return
 	}
 
 	// 检查订单状态
 	if transaction.Status != "pending" {
-		response.Success(c, gin.H{"message": "Order already processed"})
+		response.GinSuccess(c, gin.H{"message": "Order already processed"})
 		return
 	}
 
@@ -181,7 +181,7 @@ func (h *PaymentHandler) PaymentCallback(c *gin.Context) {
 			zap.String("orderID", req.OrderID),
 			zap.Float64("expected", transaction.Amount),
 			zap.Float64("actual", req.Amount))
-		response.BadRequest(c, "Amount mismatch")
+		response.GinBadRequest(c, "Amount mismatch")
 		return
 	}
 
@@ -230,7 +230,7 @@ func (h *PaymentHandler) PaymentCallback(c *gin.Context) {
 		zap.Float64("amount", req.Amount),
 		zap.Float64("newBalance", newBalance))
 
-	response.Success(c, gin.H{
+	response.GinSuccess(c, gin.H{
 		"message":     "Payment successful",
 		"order_id":    req.OrderID,
 		"type":        transaction.Type,
@@ -247,7 +247,7 @@ func (h *PaymentHandler) ManualRecharge(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.GinBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
@@ -256,7 +256,7 @@ func (h *PaymentHandler) ManualRecharge(c *gin.Context) {
 	// 获取用户钱包
 	wallet, err := h.app.DB.DB.SQLite.GetWalletByUserID(req.UserID)
 	if err != nil || wallet == nil {
-		response.BadRequest(c, "User wallet not found")
+		response.GinBadRequest(c, "User wallet not found")
 		return
 	}
 
@@ -298,7 +298,7 @@ func (h *PaymentHandler) ManualRecharge(c *gin.Context) {
 		zap.Float64("amount", req.Amount),
 		zap.Float64("newBalance", newBalance))
 
-	response.Success(c, gin.H{
+	response.GinSuccess(c, gin.H{
 		"user_id":     req.UserID,
 		"amount":      req.Amount,
 		"new_balance": newBalance,

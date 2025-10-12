@@ -29,13 +29,13 @@ func (h *StatisticsHandler) GetNodeStats(c *gin.Context) {
 
 	from, err := time.Parse(time.RFC3339, fromStr)
 	if err != nil {
-		response.BadRequest(c, "Invalid from time format")
+		response.GinBadRequest(c, "Invalid from time format")
 		return
 	}
 
 	to, err := time.Parse(time.RFC3339, toStr)
 	if err != nil {
-		response.BadRequest(c, "Invalid to time format")
+		response.GinBadRequest(c, "Invalid to time format")
 		return
 	}
 
@@ -62,7 +62,7 @@ func (h *StatisticsHandler) GetNodeStats(c *gin.Context) {
 		avgLatency /= float64(len(stats))
 	}
 
-	response.Success(c, gin.H{
+	response.GinSuccess(c, gin.H{
 		"node_id": nodeID,
 		"from":    from,
 		"to":      to,
@@ -128,7 +128,7 @@ func (h *StatisticsHandler) GetOverview(c *gin.Context) {
 		}
 	}
 
-	response.Success(c, gin.H{
+	response.GinSuccess(c, gin.H{
 		"nodes": gin.H{
 			"total":   len(nodes),
 			"online":  onlineCount,
@@ -181,7 +181,7 @@ func (h *StatisticsHandler) GetAdminOverview(c *gin.Context) {
 		activeSubscriptions = 0
 	}
 
-	response.Success(c, gin.H{
+	response.GinSuccess(c, gin.H{
 		"total_users":         totalUsers,
 		"total_nodes":         len(nodes),
 		"total_tunnels":       len(tunnels),
@@ -208,7 +208,7 @@ type ReportStatsRequest struct {
 func (h *StatisticsHandler) ReportStats(c *gin.Context) {
 	var req ReportStatsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.GinBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 

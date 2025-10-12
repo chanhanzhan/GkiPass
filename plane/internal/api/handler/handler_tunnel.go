@@ -1,235 +1,186 @@
 package handler
 
 import (
-	dbinit "gkipass/plane/db/init"
-	"gkipass/plane/internal/api/response"
-	"gkipass/plane/internal/service"
-	"gkipass/plane/internal/types"
-	"gkipass/plane/pkg/logger"
+	"encoding/json"
+	"net/http"
+	"strconv"
 
-	"github.com/gin-gonic/gin"
+	"github.com/gorilla/mux"
 	"go.uber.org/zap"
+
+	"gkipass/plane/internal/api/response"
+	"gkipass/plane/internal/model"
+	"gkipass/plane/internal/service"
 )
 
 // TunnelHandler 隧道处理器
 type TunnelHandler struct {
-	app           *types.App
 	tunnelService *service.TunnelService
+	logger        *zap.Logger
 }
 
 // NewTunnelHandler 创建隧道处理器
-func NewTunnelHandler(app *types.App) *TunnelHandler {
-	planService := service.NewPlanService(app.DB)
+func NewTunnelHandler(tunnelService *service.TunnelService) *TunnelHandler {
 	return &TunnelHandler{
-		app:           app,
-		tunnelService: service.NewTunnelService(app.DB, planService),
+		tunnelService: tunnelService,
+		logger:        zap.L().Named("tunnel-handler"),
 	}
 }
 
-// CreateTunnelRequest 创建隧道请求
-type CreateTunnelRequest struct {
-	Name         string                `json:"name" binding:"required"`
-	Protocol     string                `json:"protocol" binding:"required,oneof=tcp udp http https"`
-	EntryGroupID string                `json:"entry_group_id" binding:"required"`
-	ExitGroupID  string                `json:"exit_group_id" binding:"required"`
-	LocalPort    int                   `json:"local_port" binding:"required,min=1024,max=65535"`
-	Targets      []dbinit.TunnelTarget `json:"targets" binding:"required,min=1"`
-	Enabled      bool                  `json:"enabled"`
-	Description  string                `json:"description"`
+// RegisterRoutes 注册路由
+func (h *TunnelHandler) RegisterRoutes(r *mux.Router) {
+	r.HandleFunc("/tunnels", h.ListTunnels).Methods("GET")
+	r.HandleFunc("/tunnels", h.CreateTunnel).Methods("POST")
+	r.HandleFunc("/tunnels/{id}", h.GetTunnel).Methods("GET")
+	r.HandleFunc("/tunnels/{id}", h.UpdateTunnel).Methods("PUT")
+	r.HandleFunc("/tunnels/{id}", h.DeleteTunnel).Methods("DELETE")
+	r.HandleFunc("/tunnels/{id}/probe", h.ProbeTunnel).Methods("POST")
 }
 
-// Create 创建隧道
-func (h *TunnelHandler) Create(c *gin.Context) {
-	var req CreateTunnelRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
-		return
-	}
+// ListTunnels 列出所有隧道
+func (h *TunnelHandler) ListTunnels(w http.ResponseWriter, r *http.Request) {
+	// 获取查询参数
+	query := r.URL.Query()
+	enabled := query.Get("enabled")
 
-	userID, _ := c.Get("user_id")
-
-	tunnel := &dbinit.Tunnel{
-		UserID:       userID.(string),
-		Name:         req.Name,
-		Protocol:     req.Protocol,
-		EntryGroupID: req.EntryGroupID,
-		ExitGroupID:  req.ExitGroupID,
-		LocalPort:    req.LocalPort,
-		Enabled:      req.Enabled,
-		Description:  req.Description,
-	}
-
-	if err := h.tunnelService.CreateTunnel(tunnel, req.Targets); err != nil {
-		logger.Error("创建隧道失败", zap.Error(err))
-		response.BadRequest(c, err.Error())
-		return
-	}
-
-	// 解析目标用于返回
-	targets, _ := service.ParseTargetsFromString(tunnel.Targets)
-
-	response.SuccessWithMessage(c, "Tunnel created successfully", gin.H{
-		"tunnel":  tunnel,
-		"targets": targets,
-	})
-}
-
-// List 列出隧道
-func (h *TunnelHandler) List(c *gin.Context) {
-	userID, _ := c.Get("user_id")
-	role, _ := c.Get("role")
-
-	// 管理员可以查看所有隧道
-	queryUserID := userID.(string)
-	if role == "admin" && c.Query("user_id") != "" {
-		queryUserID = c.Query("user_id")
-	}
-
-	var enabled *bool
-	if enabledStr := c.Query("enabled"); enabledStr != "" {
-		val := enabledStr == "true"
-		enabled = &val
-	}
-
-	tunnels, err := h.tunnelService.ListTunnels(queryUserID, enabled)
+	// 获取隧道
+	tunnels, err := h.tunnelService.ListTunnels()
 	if err != nil {
-		logger.Error("列出隧道失败", zap.Error(err))
-		response.InternalError(c, "Failed to list tunnels")
+		h.logger.Error("列出隧道失败", zap.Error(err))
+		response.Error(w, http.StatusInternalServerError, "获取隧道列表失败", err)
 		return
 	}
 
-	response.Success(c, tunnels)
+	// 过滤隧道
+	var filteredTunnels []*model.Tunnel
+	for _, tunnel := range tunnels {
+		// 过滤启用状态
+		if enabled != "" {
+			enabledBool, err := strconv.ParseBool(enabled)
+			if err == nil && tunnel.Enabled != enabledBool {
+				continue
+			}
+		}
+
+		filteredTunnels = append(filteredTunnels, tunnel)
+	}
+
+	response.Success(w, filteredTunnels)
 }
 
-// Get 获取隧道详情
-func (h *TunnelHandler) Get(c *gin.Context) {
-	id := c.Param("id")
-	userID, _ := c.Get("user_id")
-	role, _ := c.Get("role")
-
-	tunnel, err := h.tunnelService.GetTunnel(id)
-	if err != nil {
-		response.InternalError(c, "Failed to get tunnel")
-		return
-	}
-	if tunnel == nil {
-		response.NotFound(c, "Tunnel not found")
+// CreateTunnel 创建隧道
+func (h *TunnelHandler) CreateTunnel(w http.ResponseWriter, r *http.Request) {
+	// 获取用户ID
+	claims := service.GetUserClaimsFromContext(r.Context())
+	if claims == nil {
+		response.Unauthorized(w, "未认证", nil)
 		return
 	}
 
-	// 权限检查
-	if role != "admin" && tunnel.UserID != userID.(string) {
-		response.Forbidden(c, "No permission")
+	// 解析请求体
+	var tunnel model.Tunnel
+	if err := json.NewDecoder(r.Body).Decode(&tunnel); err != nil {
+		h.logger.Error("解析请求体失败", zap.Error(err))
+		response.Error(w, http.StatusBadRequest, "无效的请求数据", err)
 		return
 	}
 
-	response.Success(c, tunnel)
+	// 创建隧道
+	if err := h.tunnelService.CreateTunnel(&tunnel, claims.UserID); err != nil {
+		h.logger.Error("创建隧道失败",
+			zap.String("name", tunnel.Name),
+			zap.Error(err))
+		response.Error(w, http.StatusInternalServerError, "创建隧道失败", err)
+		return
+	}
+
+	response.Created(w, tunnel)
 }
 
-// Update 更新隧道
-func (h *TunnelHandler) Update(c *gin.Context) {
-	id := c.Param("id")
-	userID, _ := c.Get("user_id")
-	role, _ := c.Get("role")
-
-	var req CreateTunnelRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
-		return
-	}
-
-	// 获取现有隧道
-	tunnel, err := h.tunnelService.GetTunnel(id)
-	if err != nil || tunnel == nil {
-		response.NotFound(c, "Tunnel not found")
-		return
-	}
-
-	// 权限检查
-	if role != "admin" && tunnel.UserID != userID.(string) {
-		response.Forbidden(c, "No permission")
-		return
-	}
-
-	// 更新字段
-	tunnel.Name = req.Name
-	tunnel.Protocol = req.Protocol
-	tunnel.EntryGroupID = req.EntryGroupID
-	tunnel.ExitGroupID = req.ExitGroupID
-	tunnel.LocalPort = req.LocalPort
-	tunnel.Enabled = req.Enabled
-	tunnel.Description = req.Description
-
-	if err := h.tunnelService.UpdateTunnel(tunnel, req.Targets); err != nil {
-		logger.Error("更新隧道失败", zap.Error(err))
-		response.InternalError(c, "Failed to update tunnel")
-		return
-	}
-
-	// 解析目标用于返回
-	targets, _ := service.ParseTargetsFromString(tunnel.Targets)
-
-	response.SuccessWithMessage(c, "Tunnel updated successfully", gin.H{
-		"tunnel":  tunnel,
-		"targets": targets,
-	})
-}
-
-// Delete 删除隧道
-func (h *TunnelHandler) Delete(c *gin.Context) {
-	id := c.Param("id")
-	userID, _ := c.Get("user_id")
-	role, _ := c.Get("role")
+// GetTunnel 获取隧道
+func (h *TunnelHandler) GetTunnel(w http.ResponseWriter, r *http.Request) {
+	// 获取路径参数
+	vars := mux.Vars(r)
+	id := vars["id"]
 
 	// 获取隧道
 	tunnel, err := h.tunnelService.GetTunnel(id)
-	if err != nil || tunnel == nil {
-		response.NotFound(c, "Tunnel not found")
+	if err != nil {
+		h.logger.Error("获取隧道失败",
+			zap.String("id", id),
+			zap.Error(err))
+		response.Error(w, http.StatusNotFound, "隧道不存在", err)
 		return
 	}
 
-	// 权限检查
-	if role != "admin" && tunnel.UserID != userID.(string) {
-		response.Forbidden(c, "No permission")
-		return
-	}
-
-	if err := h.tunnelService.DeleteTunnel(id, userID.(string)); err != nil {
-		logger.Error("删除隧道失败", zap.String("id", id), zap.Error(err))
-		response.InternalError(c, "Failed to delete tunnel")
-		return
-	}
-
-	response.SuccessWithMessage(c, "Tunnel deleted successfully", nil)
+	response.Success(w, tunnel)
 }
 
-// Toggle 切换隧道状态
-func (h *TunnelHandler) Toggle(c *gin.Context) {
-	id := c.Param("id")
-	userID, _ := c.Get("user_id")
-	role, _ := c.Get("role")
+// UpdateTunnel 更新隧道
+func (h *TunnelHandler) UpdateTunnel(w http.ResponseWriter, r *http.Request) {
+	// 获取路径参数
+	vars := mux.Vars(r)
+	id := vars["id"]
 
-	// 获取隧道
-	tunnel, err := h.tunnelService.GetTunnel(id)
-	if err != nil || tunnel == nil {
-		response.NotFound(c, "Tunnel not found")
+	// 解析请求体
+	var tunnel model.Tunnel
+	if err := json.NewDecoder(r.Body).Decode(&tunnel); err != nil {
+		h.logger.Error("解析请求体失败", zap.Error(err))
+		response.Error(w, http.StatusBadRequest, "无效的请求数据", err)
 		return
 	}
 
-	// 权限检查
-	if role != "admin" && tunnel.UserID != userID.(string) {
-		response.Forbidden(c, "No permission")
+	// 确保ID一致
+	tunnel.ID = id
+
+	// 更新隧道
+	if err := h.tunnelService.UpdateTunnel(&tunnel); err != nil {
+		h.logger.Error("更新隧道失败",
+			zap.String("id", id),
+			zap.Error(err))
+		response.Error(w, http.StatusInternalServerError, "更新隧道失败", err)
 		return
 	}
 
-	// 切换状态
-	if err := h.tunnelService.ToggleTunnel(id, !tunnel.Enabled); err != nil {
-		response.InternalError(c, "Failed to toggle tunnel")
+	response.Success(w, tunnel)
+}
+
+// DeleteTunnel 删除隧道
+func (h *TunnelHandler) DeleteTunnel(w http.ResponseWriter, r *http.Request) {
+	// 获取路径参数
+	vars := mux.Vars(r)
+	id := vars["id"]
+
+	// 删除隧道
+	if err := h.tunnelService.DeleteTunnel(id); err != nil {
+		h.logger.Error("删除隧道失败",
+			zap.String("id", id),
+			zap.Error(err))
+		response.Error(w, http.StatusInternalServerError, "删除隧道失败", err)
 		return
 	}
 
-	response.SuccessWithMessage(c, "Tunnel toggled successfully", gin.H{
+	response.Success(w, map[string]interface{}{
+		"message": "隧道已删除",
 		"id":      id,
-		"enabled": !tunnel.Enabled,
 	})
+}
+
+// ProbeTunnel 探测隧道
+func (h *TunnelHandler) ProbeTunnel(w http.ResponseWriter, r *http.Request) {
+	// 获取路径参数
+	vars := mux.Vars(r)
+	id := vars["id"]
+
+	// 探测隧道
+	result, err := h.tunnelService.ProbeTunnel(id)
+	if err != nil {
+		h.logger.Error("探测隧道失败",
+			zap.String("id", id),
+			zap.Error(err))
+		response.Error(w, http.StatusInternalServerError, "探测隧道失败", err)
+		return
+	}
+
+	response.Success(w, result)
 }

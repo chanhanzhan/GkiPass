@@ -30,7 +30,7 @@ type CreateNodeGroupRequest struct {
 func (h *NodeGroupHandler) Create(c *gin.Context) {
 	var req CreateNodeGroupRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.GinBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
@@ -75,7 +75,7 @@ func (h *NodeGroupHandler) List(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, gin.H{
+	response.GinSuccess(c, gin.H{
 		"groups": groups,
 		"total":  len(groups),
 	})
@@ -92,7 +92,7 @@ func (h *NodeGroupHandler) Get(c *gin.Context) {
 	}
 
 	if group == nil {
-		response.NotFound(c, "Node group not found")
+		response.GinNotFound(c, "Node group not found")
 		return
 	}
 
@@ -100,14 +100,14 @@ func (h *NodeGroupHandler) Get(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	userRole, _ := c.Get("role")
 	if userRole != "admin" && group.UserID != userID.(string) {
-		response.Forbidden(c, "No permission to access this node group")
+		response.GinForbidden(c, "No permission to access this node group")
 		return
 	}
 
 	// 获取组内节点列表
 	nodes, _ := h.app.DB.DB.SQLite.GetNodesInGroup(id)
 
-	response.Success(c, gin.H{
+	response.GinSuccess(c, gin.H{
 		"group": group,
 		"nodes": nodes,
 	})
@@ -126,7 +126,7 @@ func (h *NodeGroupHandler) Update(c *gin.Context) {
 
 	var req UpdateNodeGroupRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.GinBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
@@ -137,7 +137,7 @@ func (h *NodeGroupHandler) Update(c *gin.Context) {
 	}
 
 	if group == nil {
-		response.NotFound(c, "Node group not found")
+		response.GinNotFound(c, "Node group not found")
 		return
 	}
 
@@ -145,7 +145,7 @@ func (h *NodeGroupHandler) Update(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	userRole, _ := c.Get("role")
 	if userRole != "admin" && group.UserID != userID.(string) {
-		response.Forbidden(c, "No permission to update this node group")
+		response.GinForbidden(c, "No permission to update this node group")
 		return
 	}
 
@@ -174,7 +174,7 @@ func (h *NodeGroupHandler) Delete(c *gin.Context) {
 
 	group, err := h.app.DB.DB.SQLite.GetNodeGroup(id)
 	if err != nil || group == nil {
-		response.NotFound(c, "Node group not found")
+		response.GinNotFound(c, "Node group not found")
 		return
 	}
 
@@ -182,13 +182,13 @@ func (h *NodeGroupHandler) Delete(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	userRole, _ := c.Get("role")
 	if userRole != "admin" && group.UserID != userID.(string) {
-		response.Forbidden(c, "No permission to delete this node group")
+		response.GinForbidden(c, "No permission to delete this node group")
 		return
 	}
 
 	// 检查组内是否还有节点
 	if group.NodeCount > 0 {
-		response.BadRequest(c, "Cannot delete node group with nodes, please remove nodes first")
+		response.GinBadRequest(c, "Cannot delete node group with nodes, please remove nodes first")
 		return
 	}
 

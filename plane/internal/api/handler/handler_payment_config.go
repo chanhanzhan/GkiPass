@@ -26,7 +26,7 @@ func (h *PaymentConfigHandler) ListConfigs(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, configs)
+	response.GinSuccess(c, configs)
 }
 
 // GetConfig 获取单个支付配置
@@ -39,11 +39,11 @@ func (h *PaymentConfigHandler) GetConfig(c *gin.Context) {
 		return
 	}
 	if config == nil {
-		response.NotFound(c, "Payment config not found")
+		response.GinNotFound(c, "Payment config not found")
 		return
 	}
 
-	response.Success(c, config)
+	response.GinSuccess(c, config)
 }
 
 // UpdateConfig 更新支付配置
@@ -56,7 +56,7 @@ func (h *PaymentConfigHandler) UpdateConfig(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.GinBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
@@ -72,7 +72,7 @@ func (h *PaymentConfigHandler) UpdateConfig(c *gin.Context) {
 		zap.String("id", id),
 		zap.Bool("enabled", req.Enabled))
 
-	response.Success(c, gin.H{
+	response.GinSuccess(c, gin.H{
 		"id":      id,
 		"enabled": req.Enabled,
 		"message": "Payment config updated successfully",
@@ -85,7 +85,7 @@ func (h *PaymentConfigHandler) ToggleConfig(c *gin.Context) {
 
 	config, err := h.app.DB.DB.SQLite.GetPaymentConfig(id)
 	if err != nil || config == nil {
-		response.NotFound(c, "Payment config not found")
+		response.GinNotFound(c, "Payment config not found")
 		return
 	}
 
@@ -100,7 +100,7 @@ func (h *PaymentConfigHandler) ToggleConfig(c *gin.Context) {
 		zap.String("id", id),
 		zap.Bool("enabled", newStatus))
 
-	response.Success(c, gin.H{
+	response.GinSuccess(c, gin.H{
 		"id":      id,
 		"enabled": newStatus,
 	})

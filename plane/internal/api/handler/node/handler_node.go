@@ -39,7 +39,7 @@ type CreateNodeRequest struct {
 func (h *NodeHandler) Create(c *gin.Context) {
 	var req CreateNodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.GinBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
@@ -50,14 +50,14 @@ func (h *NodeHandler) Create(c *gin.Context) {
 	if req.GroupID != "" {
 		group, err := h.app.DB.DB.SQLite.GetNodeGroup(req.GroupID)
 		if err != nil || group == nil {
-			response.BadRequest(c, "Node group not found")
+			response.GinBadRequest(c, "Node group not found")
 			return
 		}
 
 		// 权限检查
 		userRole, _ := c.Get("role")
 		if userRole != "admin" && group.UserID != userID.(string) {
-			response.Forbidden(c, "No permission to use this node group")
+			response.GinForbidden(c, "No permission to use this node group")
 			return
 		}
 	}
@@ -134,7 +134,7 @@ type ListNodesRequest struct {
 func (h *NodeHandler) List(c *gin.Context) {
 	var req ListNodesRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.GinBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
@@ -177,7 +177,7 @@ func (h *NodeHandler) List(c *gin.Context) {
 		}
 	}
 
-	response.Success(c, gin.H{
+	response.GinSuccess(c, gin.H{
 		"nodes": nodes,
 		"total": len(nodes),
 	})
@@ -194,7 +194,7 @@ func (h *NodeHandler) Get(c *gin.Context) {
 	}
 
 	if node == nil {
-		response.NotFound(c, "Node not found")
+		response.GinNotFound(c, "Node not found")
 		return
 	}
 
@@ -202,7 +202,7 @@ func (h *NodeHandler) Get(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	userRole, _ := c.Get("role")
 	if userRole != "admin" && node.UserID != userID.(string) {
-		response.Forbidden(c, "No permission to access this node")
+		response.GinForbidden(c, "No permission to access this node")
 		return
 	}
 
@@ -215,7 +215,7 @@ func (h *NodeHandler) Get(c *gin.Context) {
 		}
 	}
 
-	response.Success(c, node)
+	response.GinSuccess(c, node)
 }
 
 // UpdateNodeRequest 更新节点请求
@@ -234,7 +234,7 @@ func (h *NodeHandler) Update(c *gin.Context) {
 
 	var req UpdateNodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.GinBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
@@ -245,7 +245,7 @@ func (h *NodeHandler) Update(c *gin.Context) {
 	}
 
 	if node == nil {
-		response.NotFound(c, "Node not found")
+		response.GinNotFound(c, "Node not found")
 		return
 	}
 
@@ -253,7 +253,7 @@ func (h *NodeHandler) Update(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	userRole, _ := c.Get("role")
 	if userRole != "admin" && node.UserID != userID.(string) {
-		response.Forbidden(c, "No permission to update this node")
+		response.GinForbidden(c, "No permission to update this node")
 		return
 	}
 
@@ -271,11 +271,11 @@ func (h *NodeHandler) Update(c *gin.Context) {
 		// 验证组是否存在且属于当前用户
 		group, err := h.app.DB.DB.SQLite.GetNodeGroup(req.GroupID)
 		if err != nil || group == nil {
-			response.BadRequest(c, "Node group not found")
+			response.GinBadRequest(c, "Node group not found")
 			return
 		}
 		if userRole != "admin" && group.UserID != userID.(string) {
-			response.Forbidden(c, "No permission to use this node group")
+			response.GinForbidden(c, "No permission to use this node group")
 			return
 		}
 		node.GroupID = req.GroupID
@@ -302,7 +302,7 @@ func (h *NodeHandler) Delete(c *gin.Context) {
 	// 获取节点信息进行权限检查
 	node, err := h.app.DB.DB.SQLite.GetNode(id)
 	if err != nil || node == nil {
-		response.NotFound(c, "Node not found")
+		response.GinNotFound(c, "Node not found")
 		return
 	}
 
@@ -310,7 +310,7 @@ func (h *NodeHandler) Delete(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	userRole, _ := c.Get("role")
 	if userRole != "admin" && node.UserID != userID.(string) {
-		response.Forbidden(c, "No permission to delete this node")
+		response.GinForbidden(c, "No permission to delete this node")
 		return
 	}
 
@@ -340,14 +340,14 @@ func (h *NodeHandler) Heartbeat(c *gin.Context) {
 
 	var req HeartbeatRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.GinBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
 	// 更新数据库中的last_seen
 	node, err := h.app.DB.DB.SQLite.GetNode(id)
 	if err != nil || node == nil {
-		response.NotFound(c, "Node not found")
+		response.GinNotFound(c, "Node not found")
 		return
 	}
 
@@ -367,7 +367,7 @@ func (h *NodeHandler) Heartbeat(c *gin.Context) {
 		_ = h.app.DB.Cache.Redis.SetNodeStatus(id, status)
 	}
 
-	response.Success(c, gin.H{
+	response.GinSuccess(c, gin.H{
 		"status": "ok",
 		"time":   time.Now().Unix(),
 	})

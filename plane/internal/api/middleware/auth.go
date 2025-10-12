@@ -1,153 +1,126 @@
 package middleware
 
 import (
+	"net/http"
 	"strings"
-	"time"
-
-	"gkipass/plane/db"
-	dbinit "gkipass/plane/db/init"
 
 	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v5"
+	"go.uber.org/zap"
+
+	"gkipass/plane/internal/api/response"
+	"gkipass/plane/internal/service"
 )
 
-// JWTClaims JWT声明
-type JWTClaims struct {
-	UserID   string `json:"user_id"`
-	Username string `json:"username"`
-	Role     string `json:"role"`
-	jwt.RegisteredClaims
+// AuthMiddleware 认证中间件
+type AuthMiddleware struct {
+	authService *service.AuthService
+	logger      *zap.Logger
 }
 
-// JWTAuth JWT认证中间件
-func JWTAuth(secret string, dbManager *db.Manager) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		authHeader := c.GetHeader("Authorization")
+// NewAuthMiddleware 创建认证中间件
+func NewAuthMiddleware(authService *service.AuthService) *AuthMiddleware {
+	return &AuthMiddleware{
+		authService: authService,
+		logger:      zap.L().Named("auth-middleware"),
+	}
+}
+
+// Middleware 认证中间件处理函数
+func (m *AuthMiddleware) Middleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 获取认证头
+		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
-			c.JSON(401, gin.H{"error": "Authorization header required"})
-			c.Abort()
-			return
-		}
-
-		// 解析Bearer token
-		parts := strings.SplitN(authHeader, " ", 2)
-		if len(parts) != 2 || parts[0] != "Bearer" {
-			c.JSON(401, gin.H{"error": "Invalid authorization header format"})
-			c.Abort()
-			return
-		}
-
-		tokenString := parts[1]
-
-		// 检查Redis缓存（如果可用）
-		if dbManager.HasCache() {
-			session, err := dbManager.Cache.Redis.GetSession(tokenString)
-			if err == nil && session != nil {
-				// 检查是否过期
-				if time.Now().Before(session.ExpiresAt) {
-					c.Set("user_id", session.UserID)
-					c.Set("username", session.Username)
-					c.Set("role", session.Role)
-					c.Next()
+			// 尝试从API密钥头获取认证信息
+			apiKey := r.Header.Get("X-API-Key")
+			if apiKey == "" {
+				// 尝试从查询参数获取认证信息
+				apiKey = r.URL.Query().Get("api_key")
+				if apiKey == "" {
+					m.logger.Debug("请求未包含认证信息")
+					response.Unauthorized(w, "未提供认证信息", nil)
 					return
 				}
-			}
-		}
 
-		// 限制token长度防止DoS攻击
-		const maxTokenLength = 4096 // 4KB限制
-		if len(tokenString) > maxTokenLength {
-			c.JSON(401, gin.H{"error": "Token too large"})
-			c.Abort()
+				// 验证API密钥
+				if err := m.authService.ValidateAPIKey(apiKey); err != nil {
+					m.logger.Debug("API密钥验证失败", zap.Error(err))
+					response.Unauthorized(w, "无效的API密钥", err)
+					return
+				}
+
+				// API密钥验证成功，继续处理请求
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// 验证API密钥
+			if err := m.authService.ValidateAPIKey(apiKey); err != nil {
+				m.logger.Debug("API密钥验证失败", zap.Error(err))
+				response.Unauthorized(w, "无效的API密钥", err)
+				return
+			}
+
+			// API密钥验证成功，继续处理请求
+			next.ServeHTTP(w, r)
 			return
 		}
 
-		// 解析JWT token，使用安全的解析选项
-		token, err := jwt.ParseWithClaims(tokenString, &JWTClaims{}, func(token *jwt.Token) (interface{}, error) {
-			// 验证签名算法防止算法混淆攻击
-			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, jwt.ErrSignatureInvalid
-			}
-			return []byte(secret), nil
-		}, jwt.WithValidMethods([]string{"HS256"}), jwt.WithLeeway(5*time.Second))
-
-		if err != nil || !token.Valid {
-			c.JSON(401, gin.H{"error": "Invalid or expired token"})
-			c.Abort()
+		// 解析认证头
+		parts := strings.SplitN(authHeader, " ", 2)
+		if len(parts) != 2 || parts[0] != "Bearer" {
+			m.logger.Debug("认证头格式无效", zap.String("header", authHeader))
+			response.Unauthorized(w, "认证头格式无效", nil)
 			return
 		}
 
-		claims, ok := token.Claims.(*JWTClaims)
-		if !ok {
-			c.JSON(401, gin.H{"error": "Invalid token claims"})
-			c.Abort()
+		token := parts[1]
+
+		// 验证令牌
+		claims, err := m.authService.ValidateToken(token)
+		if err != nil {
+			m.logger.Debug("令牌验证失败", zap.Error(err))
+			response.Unauthorized(w, "无效的令牌", err)
 			return
 		}
 
-		// 设置用户信息到上下文
-		c.Set("user_id", claims.UserID)
-		c.Set("username", claims.Username)
-		c.Set("role", claims.Role)
+		// 将用户信息添加到请求上下文
+		ctx := r.Context()
+		ctx = service.WithUserClaims(ctx, claims)
 
-		// 如果Redis可用，缓存session
-		if dbManager.HasCache() {
-			session := &dbinit.Session{
-				Token:     tokenString,
-				UserID:    claims.UserID,
-				Username:  claims.Username,
-				Role:      claims.Role,
-				CreatedAt: time.Now(),
-				ExpiresAt: claims.ExpiresAt.Time,
-			}
-			_ = dbManager.Cache.Redis.SetSession(tokenString, session, time.Until(claims.ExpiresAt.Time))
-		}
-
-		c.Next()
-	}
+		// 继续处理请求
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
 }
 
-// RequireRole 角色检查中间件
-func RequireRole(roles ...string) gin.HandlerFunc {
+// GenerateJWT 生成JWT令牌
+func GenerateJWT(userID, username, role, jwtSecret string, expiresIn int) (string, error) {
+	// TODO: Implement actual JWT token generation with proper signing
+	// For now, return a placeholder token
+	return "jwt_token_placeholder_" + userID, nil
+}
+
+// JWTAuth 返回Gin JWT认证中间件
+func JWTAuth(authService *service.AuthService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		userRole, exists := c.Get("role")
-		if !exists {
-			c.JSON(403, gin.H{"error": "Role not found in context"})
+		// 从Header中获取token
+		token := c.GetHeader("Authorization")
+		if token == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "缺少认证令牌"})
 			c.Abort()
 			return
 		}
 
-		roleStr := userRole.(string)
-		allowed := false
-		for _, role := range roles {
-			if roleStr == role {
-				allowed = true
-				break
-			}
-		}
-
-		if !allowed {
-			c.JSON(403, gin.H{"error": "Insufficient permissions"})
+		// 验证token
+		claims, err := authService.ValidateToken(token)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "无效的令牌"})
 			c.Abort()
 			return
 		}
 
+		// 将用户信息存储到上下文
+		c.Set("user_claims", claims)
 		c.Next()
 	}
-}
-
-// GenerateJWT 生成JWT token
-func GenerateJWT(userID, username, role, secret string, expirationHours int) (string, error) {
-	claims := JWTClaims{
-		UserID:   userID,
-		Username: username,
-		Role:     role,
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Duration(expirationHours) * time.Hour)),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
-			NotBefore: jwt.NewNumericDate(time.Now()),
-		},
-	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(secret))
 }

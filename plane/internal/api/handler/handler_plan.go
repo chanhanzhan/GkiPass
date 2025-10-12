@@ -75,7 +75,7 @@ type CreatePlanRequest struct {
 func (h *PlanHandler) Create(c *gin.Context) {
 	var req CreatePlanRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.GinBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
@@ -123,7 +123,7 @@ func (h *PlanHandler) List(c *gin.Context) {
 		responsePlans[i] = planToResponse(plan)
 	}
 
-	response.Success(c, responsePlans)
+	response.GinSuccess(c, responsePlans)
 }
 
 // Get 获取套餐详情
@@ -136,11 +136,11 @@ func (h *PlanHandler) Get(c *gin.Context) {
 		return
 	}
 	if plan == nil {
-		response.NotFound(c, "Plan not found")
+		response.GinNotFound(c, "Plan not found")
 		return
 	}
 
-	response.Success(c, planToResponse(plan))
+	response.GinSuccess(c, planToResponse(plan))
 }
 
 // Update 更新套餐（仅管理员）
@@ -149,14 +149,14 @@ func (h *PlanHandler) Update(c *gin.Context) {
 
 	var req CreatePlanRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.GinBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
 	// 获取现有套餐
 	plan, err := h.planService.GetPlan(id)
 	if err != nil || plan == nil {
-		response.NotFound(c, "Plan not found")
+		response.GinNotFound(c, "Plan not found")
 		return
 	}
 
@@ -188,7 +188,7 @@ func (h *PlanHandler) Delete(c *gin.Context) {
 
 	if err := h.planService.DeletePlan(id); err != nil {
 		logger.Error("删除套餐失败", zap.String("id", id), zap.Error(err))
-		response.BadRequest(c, err.Error())
+		response.GinBadRequest(c, err.Error())
 		return
 	}
 
@@ -214,7 +214,7 @@ func (h *PlanHandler) Subscribe(c *gin.Context) {
 			zap.String("userID", userID.(string)),
 			zap.String("planID", planID),
 			zap.Error(err))
-		response.BadRequest(c, err.Error())
+		response.GinBadRequest(c, err.Error())
 		return
 	}
 
@@ -233,11 +233,11 @@ func (h *PlanHandler) MySubscription(c *gin.Context) {
 
 	// 用户无订阅，返回null而不是错误
 	if sub == nil || plan == nil {
-		response.Success(c, nil)
+		response.GinSuccess(c, nil)
 		return
 	}
 
-	response.Success(c, gin.H{
+	response.GinSuccess(c, gin.H{
 		"id":               sub.ID,
 		"plan_id":          sub.PlanID,
 		"status":           sub.Status,

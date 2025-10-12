@@ -97,7 +97,7 @@ func (h *TrafficStatsHandler) ListTrafficStats(c *gin.Context) {
 		result = append(result, detail)
 	}
 
-	response.Success(c, ListTrafficStatsResponse{
+	response.GinSuccess(c, ListTrafficStatsResponse{
 		Data:  result,
 		Total: total,
 	})
@@ -122,13 +122,13 @@ func (h *TrafficStatsHandler) GetTrafficSummary(c *gin.Context) {
 
 	startDate, err := time.Parse("2006-01-02", startDateStr)
 	if err != nil {
-		response.BadRequest(c, "Invalid start_date format")
+		response.GinBadRequest(c, "Invalid start_date format")
 		return
 	}
 
 	endDate, err := time.Parse("2006-01-02", endDateStr)
 	if err != nil {
-		response.BadRequest(c, "Invalid end_date format")
+		response.GinBadRequest(c, "Invalid end_date format")
 		return
 	}
 
@@ -141,7 +141,7 @@ func (h *TrafficStatsHandler) GetTrafficSummary(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, gin.H{
+	response.GinSuccess(c, gin.H{
 		"traffic_in":         trafficIn,
 		"traffic_out":        trafficOut,
 		"billed_traffic_in":  billedIn,
@@ -164,14 +164,14 @@ type ReportTrafficRequest struct {
 func (h *TrafficStatsHandler) ReportTraffic(c *gin.Context) {
 	var req ReportTrafficRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.GinBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
 	// 获取隧道信息
 	tunnel, err := h.app.DB.DB.SQLite.GetTunnel(req.TunnelID)
 	if err != nil || tunnel == nil {
-		response.NotFound(c, "Tunnel not found")
+		response.GinNotFound(c, "Tunnel not found")
 		return
 	}
 

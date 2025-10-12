@@ -33,7 +33,7 @@ func (h *NodeCertHandler) GenerateCert(c *gin.Context) {
 	// 获取节点信息
 	node, err := h.app.DB.DB.SQLite.GetNode(nodeID)
 	if err != nil || node == nil {
-		response.NotFound(c, "Node not found")
+		response.GinNotFound(c, "Node not found")
 		return
 	}
 
@@ -41,7 +41,7 @@ func (h *NodeCertHandler) GenerateCert(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	userRole, _ := c.Get("role")
 	if userRole != "admin" && node.UserID != userID.(string) {
-		response.Forbidden(c, "No permission")
+		response.GinForbidden(c, "No permission")
 		return
 	}
 
@@ -81,7 +81,7 @@ func (h *NodeCertHandler) DownloadCert(c *gin.Context) {
 	// 获取节点信息
 	node, err := h.app.DB.DB.SQLite.GetNode(nodeID)
 	if err != nil || node == nil {
-		response.NotFound(c, "Node not found")
+		response.GinNotFound(c, "Node not found")
 		return
 	}
 
@@ -89,13 +89,13 @@ func (h *NodeCertHandler) DownloadCert(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	userRole, _ := c.Get("role")
 	if userRole != "admin" && node.UserID != userID.(string) {
-		response.Forbidden(c, "No permission")
+		response.GinForbidden(c, "No permission")
 		return
 	}
 
 	// 检查证书是否存在
 	if node.CertID == "" {
-		response.BadRequest(c, "Node certificate not generated")
+		response.GinBadRequest(c, "Node certificate not generated")
 		return
 	}
 
@@ -111,7 +111,7 @@ func (h *NodeCertHandler) DownloadCert(c *gin.Context) {
 
 	// 检查文件是否存在
 	if _, err := os.Stat(certPath); os.IsNotExist(err) {
-		response.NotFound(c, "Certificate files not found")
+		response.GinNotFound(c, "Certificate files not found")
 		return
 	}
 
@@ -197,7 +197,7 @@ func (h *NodeCertHandler) RenewCert(c *gin.Context) {
 	// 获取节点信息
 	node, err := h.app.DB.DB.SQLite.GetNode(nodeID)
 	if err != nil || node == nil {
-		response.NotFound(c, "Node not found")
+		response.GinNotFound(c, "Node not found")
 		return
 	}
 
@@ -205,7 +205,7 @@ func (h *NodeCertHandler) RenewCert(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	userRole, _ := c.Get("role")
 	if userRole != "admin" && node.UserID != userID.(string) {
-		response.Forbidden(c, "No permission")
+		response.GinForbidden(c, "No permission")
 		return
 	}
 
@@ -244,7 +244,7 @@ func (h *NodeCertHandler) GetCertInfo(c *gin.Context) {
 	// 获取节点信息
 	node, err := h.app.DB.DB.SQLite.GetNode(nodeID)
 	if err != nil || node == nil {
-		response.NotFound(c, "Node not found")
+		response.GinNotFound(c, "Node not found")
 		return
 	}
 
@@ -252,13 +252,13 @@ func (h *NodeCertHandler) GetCertInfo(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	userRole, _ := c.Get("role")
 	if userRole != "admin" && node.UserID != userID.(string) {
-		response.Forbidden(c, "No permission")
+		response.GinForbidden(c, "No permission")
 		return
 	}
 
 	// 检查证书是否存在
 	if node.CertID == "" {
-		response.Success(c, gin.H{
+		response.GinSuccess(c, gin.H{
 			"has_cert": false,
 			"message":  "Certificate not generated",
 		})
@@ -268,7 +268,7 @@ func (h *NodeCertHandler) GetCertInfo(c *gin.Context) {
 	// 获取证书信息
 	cert, err := h.app.DB.DB.SQLite.GetCertificate(node.CertID)
 	if err != nil || cert == nil {
-		response.NotFound(c, "Certificate not found")
+		response.GinNotFound(c, "Certificate not found")
 		return
 	}
 
@@ -286,7 +286,7 @@ func (h *NodeCertHandler) GetCertInfo(c *gin.Context) {
 		fileExists = true
 	}
 
-	response.Success(c, gin.H{
+	response.GinSuccess(c, gin.H{
 		"has_cert":     true,
 		"file_exists":  fileExists,
 		"cert_id":      cert.ID,

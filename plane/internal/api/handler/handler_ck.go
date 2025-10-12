@@ -29,7 +29,7 @@ func (h *CKHandler) GenerateNodeCK(c *gin.Context) {
 	// 验证节点存在
 	node, err := h.app.DB.DB.SQLite.GetNode(nodeID)
 	if err != nil || node == nil {
-		response.NotFound(c, "Node not found")
+		response.GinNotFound(c, "Node not found")
 		return
 	}
 
@@ -37,7 +37,7 @@ func (h *CKHandler) GenerateNodeCK(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	role, _ := c.Get("role")
 	if role != "admin" && node.UserID != userID.(string) {
-		response.Forbidden(c, "No permission")
+		response.GinForbidden(c, "No permission")
 		return
 	}
 
@@ -70,7 +70,7 @@ func (h *CKHandler) ListNodeCKs(c *gin.Context) {
 	// 验证节点存在
 	node, err := h.app.DB.DB.SQLite.GetNode(nodeID)
 	if err != nil || node == nil {
-		response.NotFound(c, "Node not found")
+		response.GinNotFound(c, "Node not found")
 		return
 	}
 
@@ -78,7 +78,7 @@ func (h *CKHandler) ListNodeCKs(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	role, _ := c.Get("role")
 	if role != "admin" && node.UserID != userID.(string) {
-		response.Forbidden(c, "No permission")
+		response.GinForbidden(c, "No permission")
 		return
 	}
 
@@ -96,7 +96,7 @@ func (h *CKHandler) ListNodeCKs(c *gin.Context) {
 		}
 	}
 
-	response.Success(c, cks)
+	response.GinSuccess(c, cks)
 }
 
 // RevokeCK 撤销 CK

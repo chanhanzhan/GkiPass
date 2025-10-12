@@ -39,7 +39,7 @@ func (h *UserHandler) Register(c *gin.Context) {
 	var req RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		logger.Warn("注册请求参数错误", zap.Error(err))
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.GinBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
@@ -51,7 +51,7 @@ func (h *UserHandler) Register(c *gin.Context) {
 	if h.app.Config.Captcha.Enabled && h.app.Config.Captcha.EnableRegister {
 		if req.CaptchaID == "" || req.CaptchaCode == "" {
 			logger.Warn("缺少验证码", zap.String("username", req.Username))
-			response.BadRequest(c, "Captcha required")
+			response.GinBadRequest(c, "Captcha required")
 			return
 		}
 
@@ -62,7 +62,7 @@ func (h *UserHandler) Register(c *gin.Context) {
 				logger.Warn("验证码无效或已过期",
 					zap.String("username", req.Username),
 					zap.Error(err))
-				response.BadRequest(c, "Invalid or expired captcha code")
+				response.GinBadRequest(c, "Invalid or expired captcha code")
 				return
 			}
 		}
@@ -80,7 +80,7 @@ func (h *UserHandler) Register(c *gin.Context) {
 	if existingUser != nil {
 		logger.Warn("用户名已存在",
 			zap.String("username", req.Username))
-		response.BadRequest(c, "Username already exists")
+		response.GinBadRequest(c, "Username already exists")
 		return
 	}
 
@@ -98,7 +98,7 @@ func (h *UserHandler) Register(c *gin.Context) {
 			zap.String("email", req.Email),
 			zap.String("existingUserID", existingEmail.ID),
 			zap.String("existingUsername", existingEmail.Username))
-		response.BadRequest(c, "Email already exists")
+		response.GinBadRequest(c, "Email already exists")
 		return
 	}
 
@@ -181,11 +181,11 @@ func (h *UserHandler) GetProfile(c *gin.Context) {
 
 	user, err := h.app.DB.DB.SQLite.GetUser(userID.(string))
 	if err != nil || user == nil {
-		response.NotFound(c, "User not found")
+		response.GinNotFound(c, "User not found")
 		return
 	}
 
-	response.Success(c, gin.H{
+	response.GinSuccess(c, gin.H{
 		"id":         user.ID,
 		"username":   user.Username,
 		"email":      user.Email,
@@ -206,20 +206,20 @@ type UpdatePasswordRequest struct {
 func (h *UserHandler) UpdatePassword(c *gin.Context) {
 	var req UpdatePasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.GinBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
 	userID, _ := c.Get("user_id")
 	user, err := h.app.DB.DB.SQLite.GetUser(userID.(string))
 	if err != nil || user == nil {
-		response.NotFound(c, "User not found")
+		response.GinNotFound(c, "User not found")
 		return
 	}
 
 	// 验证旧密码
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.OldPassword)); err != nil {
-		response.Unauthorized(c, "Invalid old password")
+		response.GinUnauthorized(c, "Invalid old password")
 		return
 	}
 
@@ -262,7 +262,7 @@ func (h *UserHandler) ListUsers(c *gin.Context) {
 		})
 	}
 
-	response.Success(c, safeUsers)
+	response.GinSuccess(c, safeUsers)
 }
 
 // GetCurrentUser 获取当前用户完整信息（包括订阅、钱包、权限等）
@@ -273,7 +273,7 @@ func (h *UserHandler) GetCurrentUser(c *gin.Context) {
 	// 获取用户基本信息
 	user, err := h.app.DB.DB.SQLite.GetUser(userID.(string))
 	if err != nil || user == nil {
-		response.NotFound(c, "User not found")
+		response.GinNotFound(c, "User not found")
 		return
 	}
 
@@ -347,7 +347,7 @@ func (h *UserHandler) GetCurrentUser(c *gin.Context) {
 	}
 	userData["permissions"] = permissions
 
-	response.Success(c, userData)
+	response.GinSuccess(c, userData)
 }
 
 // ToggleUserStatus 启用/禁用用户（管理员）
@@ -357,13 +357,13 @@ func (h *UserHandler) ToggleUserStatus(c *gin.Context) {
 
 	// 不能禁用自己
 	if targetUserID == currentUserID.(string) {
-		response.BadRequest(c, "Cannot disable your own account")
+		response.GinBadRequest(c, "Cannot disable your own account")
 		return
 	}
 
 	user, err := h.app.DB.DB.SQLite.GetUser(targetUserID)
 	if err != nil || user == nil {
-		response.NotFound(c, "User not found")
+		response.GinNotFound(c, "User not found")
 		return
 	}
 
@@ -395,19 +395,19 @@ func (h *UserHandler) UpdateUserRole(c *gin.Context) {
 
 	var req UpdateUserRoleRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.GinBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
 	// 不能修改自己的角色
 	if targetUserID == currentUserID.(string) {
-		response.BadRequest(c, "Cannot modify your own role")
+		response.GinBadRequest(c, "Cannot modify your own role")
 		return
 	}
 
 	user, err := h.app.DB.DB.SQLite.GetUser(targetUserID)
 	if err != nil || user == nil {
-		response.NotFound(c, "User not found")
+		response.GinNotFound(c, "User not found")
 		return
 	}
 
@@ -434,13 +434,13 @@ func (h *UserHandler) DeleteUser(c *gin.Context) {
 
 	// 不能删除自己
 	if targetUserID == currentUserID.(string) {
-		response.BadRequest(c, "Cannot delete your own account")
+		response.GinBadRequest(c, "Cannot delete your own account")
 		return
 	}
 
 	user, err := h.app.DB.DB.SQLite.GetUser(targetUserID)
 	if err != nil || user == nil {
-		response.NotFound(c, "User not found")
+		response.GinNotFound(c, "User not found")
 		return
 	}
 
@@ -537,5 +537,5 @@ func (h *UserHandler) GetUserPermissions(c *gin.Context) {
 		permissionDetails["can_access_admin_panel"] = false
 	}
 
-	response.Success(c, permissionDetails)
+	response.GinSuccess(c, permissionDetails)
 }

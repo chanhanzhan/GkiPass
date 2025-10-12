@@ -22,7 +22,7 @@ func (h *NodeHandler) GetAvailableNodes(c *gin.Context) {
 			response.InternalError(c, "Failed to get nodes")
 			return
 		}
-		response.Success(c, nodes)
+		response.GinSuccess(c, nodes)
 		return
 	}
 
@@ -35,7 +35,7 @@ func (h *NodeHandler) GetAvailableNodes(c *gin.Context) {
 
 	// 如果没有订阅，返回空列表
 	if sub == nil {
-		response.Success(c, gin.H{
+		response.GinSuccess(c, gin.H{
 			"nodes":            []interface{}{},
 			"has_subscription": false,
 			"message":          "请先购买套餐以查看可用节点",
@@ -46,7 +46,7 @@ func (h *NodeHandler) GetAvailableNodes(c *gin.Context) {
 	// 获取套餐信息
 	plan, err := h.app.DB.DB.SQLite.GetPlan(sub.PlanID)
 	if err != nil || plan == nil {
-		response.Success(c, gin.H{
+		response.GinSuccess(c, gin.H{
 			"nodes":            []interface{}{},
 			"has_subscription": false,
 			"message":          "请先购买套餐以查看可用节点",
@@ -68,7 +68,7 @@ func (h *NodeHandler) GetAvailableNodes(c *gin.Context) {
 	}
 
 	if allowedNodeIDsStr == "" || allowedNodeIDsStr == "[]" {
-		response.Success(c, gin.H{
+		response.GinSuccess(c, gin.H{
 			"nodes":            allNodes,
 			"has_subscription": true,
 			"plan_name":        plan.Name,
@@ -97,7 +97,7 @@ func (h *NodeHandler) GetAvailableNodes(c *gin.Context) {
 		}
 	}
 
-	response.Success(c, gin.H{
+	response.GinSuccess(c, gin.H{
 		"nodes":            availableNodes,
 		"has_subscription": true,
 		"plan_name":        plan.Name,

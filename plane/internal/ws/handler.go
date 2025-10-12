@@ -25,11 +25,11 @@ type Handler struct {
 
 // NewHandler 创建处理器
 func NewHandler(manager *Manager, dbManager *db.Manager) *Handler {
-	planService := service.NewPlanService(dbManager)
+	// TODO: Pass correct services when available
 	return &Handler{
 		manager:       manager,
 		db:            dbManager,
-		tunnelService: service.NewTunnelService(dbManager, planService),
+		tunnelService: service.NewTunnelService(nil, nil, nil, nil),
 		nodeManager:   node.NewManager(dbManager),
 	}
 }
@@ -378,7 +378,7 @@ func (h *Handler) syncRulesToNode(nodeID, groupID, nodeType string) {
 		zap.String("groupID", groupID))
 
 	// 获取该节点组的所有隧道
-	tunnels, err := h.tunnelService.GetTunnelsByGroupID(groupID, nodeType)
+	tunnels, err := h.tunnelService.GetTunnelsByGroupID(groupID)
 	if err != nil {
 		logger.Error("获取隧道规则失败", zap.Error(err))
 		return
@@ -387,33 +387,29 @@ func (h *Handler) syncRulesToNode(nodeID, groupID, nodeType string) {
 	// 转换为规则格式
 	rules := make([]TunnelRule, 0, len(tunnels))
 	for _, tunnel := range tunnels {
-		// 解析目标列表
-		targets, err := service.ParseTargetsFromString(tunnel.Targets)
-		if err != nil {
-			logger.Warn("解析目标列表失败",
-				zap.String("tunnelID", tunnel.ID),
-				zap.Error(err))
-			continue
+		// 构建单个目标
+		wsTargets := []TunnelTarget{
+			{
+				Host:   tunnel.TargetAddress,
+				Port:   tunnel.TargetPort,
+				Weight: 1,
+			},
 		}
 
-		// 转换目标格式
-		wsTargets := make([]TunnelTarget, len(targets))
-		for i, t := range targets {
-			wsTargets[i] = TunnelTarget{
-				Host:   t.Host,
-				Port:   t.Port,
-				Weight: t.Weight,
-			}
+		// 根据节点类型选择协议
+		protocol := tunnel.IngressProtocol
+		if nodeType == "egress" || nodeType == "exit" {
+			protocol = tunnel.EgressProtocol
 		}
 
 		rule := TunnelRule{
 			TunnelID:  tunnel.ID,
 			Name:      tunnel.Name,
-			Protocol:  tunnel.Protocol,
-			LocalPort: tunnel.LocalPort,
+			Protocol:  protocol,
+			LocalPort: tunnel.ListenPort,
 			Targets:   wsTargets,
 			Enabled:   tunnel.Enabled,
-			UserID:    tunnel.UserID,
+			UserID:    tunnel.CreatedBy,
 		}
 
 		rules = append(rules, rule)

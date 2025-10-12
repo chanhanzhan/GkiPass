@@ -30,7 +30,7 @@ func (h *AnnouncementHandler) ListActiveAnnouncements(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, announcements)
+	response.GinSuccess(c, announcements)
 }
 
 // GetAnnouncement 获取公告详情
@@ -44,11 +44,11 @@ func (h *AnnouncementHandler) GetAnnouncement(c *gin.Context) {
 	}
 
 	if announcement == nil {
-		response.NotFound(c, "Announcement not found")
+		response.GinNotFound(c, "Announcement not found")
 		return
 	}
 
-	response.Success(c, announcement)
+	response.GinSuccess(c, announcement)
 }
 
 // ListAll 获取所有公告（管理员）
@@ -62,7 +62,7 @@ func (h *AnnouncementHandler) ListAll(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, gin.H{
+	response.GinSuccess(c, gin.H{
 		"data":        announcements,
 		"total":       total,
 		"page":        page,
@@ -86,7 +86,7 @@ type CreateAnnouncementRequest struct {
 func (h *AnnouncementHandler) Create(c *gin.Context) {
 	var req CreateAnnouncementRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.GinBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
@@ -94,13 +94,13 @@ func (h *AnnouncementHandler) Create(c *gin.Context) {
 
 	startTime, err := time.Parse(time.RFC3339, req.StartTime)
 	if err != nil {
-		response.BadRequest(c, "Invalid start_time format")
+		response.GinBadRequest(c, "Invalid start_time format")
 		return
 	}
 
 	endTime, err := time.Parse(time.RFC3339, req.EndTime)
 	if err != nil {
-		response.BadRequest(c, "Invalid end_time format")
+		response.GinBadRequest(c, "Invalid end_time format")
 		return
 	}
 
@@ -134,19 +134,19 @@ func (h *AnnouncementHandler) Update(c *gin.Context) {
 
 	var req CreateAnnouncementRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.GinBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
 	startTime, err := time.Parse(time.RFC3339, req.StartTime)
 	if err != nil {
-		response.BadRequest(c, "Invalid start_time format")
+		response.GinBadRequest(c, "Invalid start_time format")
 		return
 	}
 
 	endTime, err := time.Parse(time.RFC3339, req.EndTime)
 	if err != nil {
-		response.BadRequest(c, "Invalid end_time format")
+		response.GinBadRequest(c, "Invalid end_time format")
 		return
 	}
 

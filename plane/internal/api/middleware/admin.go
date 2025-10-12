@@ -11,7 +11,7 @@ func AdminAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		role, exists := c.Get("role")
 		if !exists || role != "admin" {
-			response.Forbidden(c, "Admin access required")
+			response.GinForbidden(c, "Admin access required")
 			c.Abort()
 			return
 		}

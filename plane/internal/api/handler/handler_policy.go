@@ -36,20 +36,20 @@ type CreatePolicyRequest struct {
 func (h *PolicyHandler) Create(c *gin.Context) {
 	var req CreatePolicyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.GinBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
 	// 序列化配置和节点ID列表
 	configJSON, err := json.Marshal(req.Config)
 	if err != nil {
-		response.BadRequest(c, "Invalid config format")
+		response.GinBadRequest(c, "Invalid config format")
 		return
 	}
 
 	nodeIDsJSON, err := json.Marshal(req.NodeIDs)
 	if err != nil {
-		response.BadRequest(c, "Invalid node_ids format")
+		response.GinBadRequest(c, "Invalid node_ids format")
 		return
 	}
 
@@ -96,7 +96,7 @@ func (h *PolicyHandler) List(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, gin.H{
+	response.GinSuccess(c, gin.H{
 		"policies": policies,
 		"total":    len(policies),
 	})
@@ -113,11 +113,11 @@ func (h *PolicyHandler) Get(c *gin.Context) {
 	}
 
 	if policy == nil {
-		response.NotFound(c, "Policy not found")
+		response.GinNotFound(c, "Policy not found")
 		return
 	}
 
-	response.Success(c, policy)
+	response.GinSuccess(c, policy)
 }
 
 // UpdatePolicyRequest 更新策略请求
@@ -136,7 +136,7 @@ func (h *PolicyHandler) Update(c *gin.Context) {
 
 	var req UpdatePolicyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.GinBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
@@ -147,7 +147,7 @@ func (h *PolicyHandler) Update(c *gin.Context) {
 	}
 
 	if policy == nil {
-		response.NotFound(c, "Policy not found")
+		response.GinNotFound(c, "Policy not found")
 		return
 	}
 
@@ -223,7 +223,7 @@ func (h *PolicyHandler) Deploy(c *gin.Context) {
 	}
 
 	if policy == nil {
-		response.NotFound(c, "Policy not found")
+		response.GinNotFound(c, "Policy not found")
 		return
 	}
 
