@@ -1,0 +1,93 @@
+"use client";
+
+import React from 'react';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer
+} from 'recharts';
+
+interface NetworkTrafficData {
+  timestamp: string;
+  inbound: number;
+  outbound: number;
+}
+
+interface NetworkTrafficChartProps {
+  data: NetworkTrafficData[];
+  title?: string;
+}
+
+const NetworkTrafficChart: React.FC<NetworkTrafficChartProps> = ({ 
+  data,
+  title = "Network Traffic"
+}) => {
+  const formatXAxis = (tickItem: string) => {
+    const date = new Date(tickItem);
+    return `${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')}`;
+  };
+
+  const formatBytes = (bytes: number, decimals = 2) => {
+    if (bytes === 0) return '0 Bytes';
+
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
+
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+  };
+
+  return (
+    <div className="w-full p-4 bg-white rounded-lg shadow dark:bg-zinc-800">
+      <h3 className="text-lg font-medium mb-4 dark:text-white">{title}</h3>
+      <div className="h-64">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart
+            data={data}
+            margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+          >
+            <CartesianGrid strokeDasharray="3 3" stroke="#444" />
+            <XAxis 
+              dataKey="timestamp" 
+              tickFormatter={formatXAxis}
+              stroke="#888" 
+            />
+            <YAxis 
+              stroke="#888"
+              tickFormatter={(value) => formatBytes(value, 0)}
+            />
+            <Tooltip 
+              formatter={(value: number) => [formatBytes(value), 'Traffic']}
+              labelFormatter={(label) => {
+                const date = new Date(label);
+                return date.toLocaleTimeString();
+              }}
+            />
+            <Legend />
+            <Bar 
+              dataKey="inbound" 
+              name="Inbound Traffic" 
+              fill="#3b82f6" 
+              stackId="a" 
+            />
+            <Bar 
+              dataKey="outbound" 
+              name="Outbound Traffic" 
+              fill="#10b981" 
+              stackId="a" 
+            />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+};
+
+export default NetworkTrafficChart;

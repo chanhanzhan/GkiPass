@@ -10,6 +10,7 @@
 
 # Output of the go coverage tool
 *.out
+*.zip
 
 # Dependency directories
 vendor/
@@ -28,6 +29,9 @@ go.work.sum
 # OS
 .DS_Store
 Thumbs.db
+
+node_modules/*
+
 
 # Data
 data/
@@ -55,4 +59,3 @@ tmp/
 temp/
 *.tmp
 bin/
-web/
